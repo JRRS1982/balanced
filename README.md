@@ -71,91 +71,9 @@ Then stop and remove orphan containers and images after you have finished with t
 npm run docker:dev:down
 ```
 
-##### Running Testing Migrations (Docker)
-
-To build and run the containers:
-
-```bash
-npm run docker:test:build
-npm run docker:test:up
-```
-
-Then run the migrations:
-
-```bash
-npm run docker:test:db:migrate
-```
-
-And then rollback if necessary:
-
-```bash
-npm run docker:test:db:rollback
-```
-
-Then stop and remove orphan containers and images after you have finished with them;
-
-```bash
-npm run docker:test:down
-```
-
-##### Running Production Migrations (RDS)
-
-These commands will run on the production database, which should be running in RDS:
-
-```bash
-npm run db:migrate
-```
-
-And then rollback if necessary:
-
-```bash
-npm run db:rollback
-```
-
-##### Create Migrations
-
-To create a migration file, run the following command:
-
-```bash
-npx knex migrate:make create_users_table
-```
-
-This will create a new migration file in the `migrations/` directory, like
-`migrations/20250203120000_create_users_table.js`
-
-To run or rollback a migration, run one of the following commands:
-
-```bash
-NODE_ENV=development npx knex migrate:latest
-NODE_ENV=development npx knex migrate:rollback
-NODE_ENV=production npx knex migrate:latest
-NODE_ENV=production npx knex migrate:rollback
-```
-
-To create a seed file, run the following command:
-
-```bash
-npx knex seed:make seed_users
-```
-
-Which will create a file in `seeds/`, such as `seeds/seed_users.js`
-
-After populating that file with data, to seed the database, run the following command:
-
-```bash
-NODE_ENV=development npx knex seed:run
-NODE_ENV=production npx knex seed:run
-```
-
-### Features
-
-Find detailed feature descriptions in [./docs/features.md](./docs/features.md)
-
 ### Contributing
 
 Contributions are welcome! If you have suggestions for new features, improvements, or bug fixes, please open an issue or submit a pull request.
-
-Thanks to <https://luqmanshaban.medium.com/creating-a-responsive-navbar-in-react-a-beginners-guide-creating-a-responsive-navbar-in-react-c454acaa55a> for some NavBar inspiration
 
 ### License
 
