@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Balanced Money
+
+This is a personal project that I am undertaking to improve my ability as a software engineer. It is a service that i hope to use personally, to manage my personal finances.
+
+## Inspiration
+
+I used to work in personal financial advice and was inspired by one particular advisor who would provide an annual / semi / quarterly update to his clients in excel format - that i would prepare. This would be the basis of their meeting, additions (investments), subtractions (withdrawals, costs and fees) and the difference in the form of value and percentage change for that period of time presented in a simple table.
+
+This was used to determine the growth / loss in a persons portfolio and compared to a predetermined well known index (aligned to the individuals attitude to risk). I would like to try and add something along those lines to this application.
+
+This is not an application built for providing financial advice, but built to track what a person has and how it is doing, so that they are are equipped to make better financial decisions.
+
+## Purpose
+
+Improve a users net worth by making it easier for them to see where they are spending their money, and tracking the performance of their existing assets, so that they are are equipped to make better financial decisions.
 
 ## Getting Started
 
-First, run the development server:
+### Development
+
+1. Clone the repository: `git clone https://github.com/JRRS1982/balanced.git`
+2. Update the environment variables in the `.env.development` file
+3. Run `npm install` to install dependencies
+4. Run `npm run dev` to start the development server and visit <http://localhost:3000> OR `npm run docker:dev` to start the development server in a docker container and visit <http://localhost:3000> which is probably the better option.
+5. You should then be able to navigate around the application and create a user / login using Auth0
+
+## Technologies Used
+
+- **Frontend**:
+  - Next.js - React framework for frontend development.
+  - Docker - Containerization solution.
+- **Backend**:
+  - Next.js - React framework for backend development.
+  - Docker - Containerization solution.
+  - PostgreSQL - The database used.
+
+### Database
+
+Postgres is used in all cases for the database in this application.
+
+Make sure your environment variables are set correctly in the appropriate file, `.env.development`, `.env.test` or `.env.prod` see `.env.example` for more information.
+
+#### Development Database
+
+Both the development and testing database are hosted in separate docker containers, via the `db` service in the compose file. This allows for a consistent and platform agnostic environment for development and testing.
+
+##### Running Development Migrations (Docker)
+
+To build and run the containers:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run docker:dev:build
+npm run docker:dev:up
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then run the migrations:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run docker:dev:db:migrate
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+And then rollback if necessary:
 
-## Learn More
+```bash
+npm run docker:dev:db:rollback
+```
 
-To learn more about Next.js, take a look at the following resources:
+Then stop and remove orphan containers and images after you have finished with them;
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run docker:dev:down
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Contributing
 
-## Deploy on Vercel
+Contributions are welcome! If you have suggestions for new features, improvements, or bug fixes, please open an issue or submit a pull request.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is licensed under the MIT License.

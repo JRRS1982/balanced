@@ -1,0 +1,62 @@
+# Docker Environment Variables
+# build > args = Build-time Environment Variables, rebuild required on change of these. These remain in the image history so should not be used for secrets
+# env_file = Runtime Environment Variables
+# environment = Runtime Environment Variables with higher precedence than env_file
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        - NODE_ENV=development # Build-time environment variable
+    container_name: money_app_dev
+    env_file:
+      - .env.development # Runtime environment variables
+    environment:
+      # Runtime environment variables - these override env_file
+      DATABASE_URL: 'postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}'
+      NODE_ENV: 'development'
+    ports:
+      - '3000:3000'
+      - '5555:5555' # For Prisma Studio
+    volumes:
+      - .:/app # bind the current directory to app in the container
+      - /app/node_modules # use the node_modules from the container
+      - /app/.next # use the .next directory from the container
+    depends_on:
+      db:
+        condition: service_healthy
+    # run the db migrations before starting the app
+    command: >
+      sh -c "npx prisma migrate deploy && npm run dev"
+
+  db:
+    container_name: money_db_dev
+    image: postgres:16-alpine
+    restart: always
+    env_file:
+      - .env.development
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      # Initialize database with:
+      # - UTF8 encoding for proper character support
+      # - 'C' locale for fastest, byte-wise sorting (recommended for development)
+      # - This helps avoid collation version warnings
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --lc-collate=C --lc-ctype=C'
+    ports:
+      - '${DB_PORT}:5432' # host:container
+    volumes:
+      # persist the database data between container restarts in dev
+      - postgres_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_NAME}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data_dev:
+    name: money_postgres_dev
