@@ -1,6 +1,9 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
+# Exit when any command fails
+set -e
+
 npm run lint
 npm run format
 npm test

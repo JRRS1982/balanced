@@ -13,9 +13,14 @@
     "docker:dev:up": "docker compose -f compose.dev.yml --env-file .env.development up",
     "docker:dev:down": "docker compose -f compose.dev.yml --env-file .env.development down --remove-orphans && docker image prune -f",
     "docker:dev:down:volumes": "docker compose -f compose.dev.yml --env-file .env.development down -v --remove-orphans && docker image prune -f",
-    "docker:dev:db:migrate": "docker exec money_app_dev npx prisma migrate deploy",
-    "docker:dev:db:rollback": "docker exec money_app_dev npx prisma migrate reset --force",
-    "docker:dev:studio": "docker exec -it money_app_dev npx prisma studio --hostname 0.0.0.0"
+    "docker:dev:db:migrate": "docker exec balanced_app_dev npx prisma migrate deploy",
+    "docker:dev:db:rollback": "docker exec balanced_app_dev npx prisma migrate reset --force",
+    "docker:dev:studio": "docker exec -it balanced_app_dev npx prisma studio --hostname 0.0.0.0",
+    "docker:test:build": "docker compose -f compose.test.yml --env-file .env.test build",
+    "docker:test:up": "docker compose -f compose.test.yml --env-file .env.test up",
+    "docker:test:down": "docker compose -f compose.test.yml --env-file .env.test down --remove-orphans && docker image prune -f",
+    "docker:test:down:volumes": "docker compose -f compose.test.yml --env-file .env.test down -v --remove-orphans && docker image prune -f",
+    "docker:test:cypress": "docker compose -f compose.test.yml --env-file .env.test run cypress"
   },
   "dependencies": {
     "@prisma/client": "^6.7.0",
@@ -30,6 +35,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cypress": "^14.4.0",
     "eslint": "^9",
     "eslint-config-next": "15.3.2",
     "eslint-config-prettier": "^10.1.5",

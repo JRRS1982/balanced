@@ -1,0 +1,14 @@
+FROM cypress/included:14.4.0
+
+WORKDIR /app
+
+# Copy package files and install dependencies
+COPY package.json ./
+RUN npm install cypress@14.4.0 --no-save
+
+# Copy Cypress files
+COPY cypress cypress
+COPY cypress.config.js .
+
+# Command will be specified in docker-compose
+CMD ["cypress", "run"]
