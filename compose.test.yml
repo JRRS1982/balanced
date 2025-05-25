@@ -1,0 +1,72 @@
+version: '3.8'
+
+# Required environment variables in .env.test:
+# - DB_USER: Database username for testing (e.g., test_user)
+# - DB_PASSWORD: Database password for testing (e.g., test_password)
+# - DB_NAME: Database name for testing (e.g., balanced_test)
+# - DB_HOST: Database host name (should be 'db' to match service name)
+# - DB_PORT: Host port to map the database to (e.g., 5433 to avoid conflicts)
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        - NODE_ENV=test
+    container_name: balanced_app_test
+    env_file:
+      - .env.test
+    environment:
+      DATABASE_URL: 'postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}'
+      NODE_ENV: 'test'
+    ports:
+      - '3000:3000'
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "npx prisma migrate deploy && npm run dev"
+
+  db:
+    container_name: balanced_db_test
+    image: postgres:15-alpine
+    restart: always
+    env_file:
+      - .env.test
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - '${DB_PORT}:5432'
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  cypress:
+    build:
+      context: .
+      dockerfile: Dockerfile.cypress
+    container_name: balanced_cypress
+    env_file:
+      - .env.test
+    environment:
+      CYPRESS_baseUrl: http://app:3000
+    depends_on:
+      - app
+    volumes:
+      - ./cypress:/app/cypress
+      - ./cypress.config.js:/app/cypress.config.js
+
+volumes:
+  postgres_test_data:
+    driver: local
