@@ -4,6 +4,13 @@
 # Exit when any command fails
 set -e
 
+# Run Next.js TypeScript type checking
+echo "🔍 Checking TypeScript types..."
+npm run typecheck
+
+# Run linting, formatting and tests
 npm run lint
 npm run format
 npm test
+
+echo "✅ Commit validated successfully!"

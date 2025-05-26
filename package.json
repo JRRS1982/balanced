@@ -9,6 +9,7 @@
     "lint": "next lint",
     "format": "prettier --write .",
     "test": "jest",
+    "typecheck": "tsc --noEmit",
     "docker:dev:build": "docker compose -f compose.dev.yml --env-file .env.development build",
     "docker:dev:up": "docker compose -f compose.dev.yml --env-file .env.development up",
     "docker:dev:down": "docker compose -f compose.dev.yml --env-file .env.development down --remove-orphans && docker image prune -f",
@@ -27,7 +28,8 @@
     "next": "15.3.2",
     "prisma": "^6.7.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "recharts": "^2.15.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

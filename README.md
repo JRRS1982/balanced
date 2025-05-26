@@ -20,9 +20,8 @@ Improve a users net worth by making it easier for them to see where they are spe
 
 1. Clone the repository: `git clone https://github.com/JRRS1982/balanced.git`
 2. Update the environment variables in the `.env.development` file
-3. Run `npm install` to install dependencies
-4. Run `npm run dev` to start the development server and visit <http://localhost:3000> OR `npm run docker:dev` to start the development server in a docker container and visit <http://localhost:3000> which is probably the better option.
-5. You should then be able to navigate around the application and create a user / login using Auth0
+3. Run `npm run docker:dev` to start the development server in a docker container and visit <http://localhost:3000>, or `npm install` and `npm run dev` to start the development server locally and visit <http://localhost:3000>
+4. You should then be able to navigate around the application and create a user / login using Auth0
 
 ## Technologies Used
 
