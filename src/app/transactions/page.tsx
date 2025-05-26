@@ -46,8 +46,12 @@ export default function TransactionsPage() {
 
   // Chart date range state
   const [chartDateRange, setChartDateRange] = useState({
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-    endDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0]
+    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+      .toISOString()
+      .split('T')[0],
+    endDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)
+      .toISOString()
+      .split('T')[0],
   });
 
   const addTransaction = (e: React.FormEvent) => {
@@ -173,7 +177,8 @@ export default function TransactionsPage() {
     const endDate = new Date(chartDateRange.endDate);
 
     // Calculate daily budget based on selected date range
-    const dayDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    const dayDiff =
+      Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     const dailyBudget = totalMonthlyBudget / dayDiff;
 
     const transactionsByDate: Record<string, { income: number; expenses: number }> = {};
@@ -302,10 +307,12 @@ export default function TransactionsPage() {
                 type="date"
                 id="chartStartDate"
                 value={chartDateRange.startDate}
-                onChange={(e) => setChartDateRange(prev => ({
-                  ...prev,
-                  startDate: e.target.value
-                }))}
+                onChange={e =>
+                  setChartDateRange(prev => ({
+                    ...prev,
+                    startDate: e.target.value,
+                  }))
+                }
                 className={styles.datePicker}
               />
             </div>
@@ -315,10 +322,12 @@ export default function TransactionsPage() {
                 type="date"
                 id="chartEndDate"
                 value={chartDateRange.endDate}
-                onChange={(e) => setChartDateRange(prev => ({
-                  ...prev,
-                  endDate: e.target.value
-                }))}
+                onChange={e =>
+                  setChartDateRange(prev => ({
+                    ...prev,
+                    endDate: e.target.value,
+                  }))
+                }
                 className={styles.datePicker}
               />
             </div>
@@ -329,28 +338,34 @@ export default function TransactionsPage() {
             <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis
-              dataKey="date"
-              tickFormatter={date => {
-                const dateObj = new Date(date);
-                return dateObj.toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  ...(dateObj.getFullYear() !== new Date().getFullYear() && { year: '2-digit' })
-                });
-              }}
-              interval="preserveStartEnd"
-              minTickGap={30}
-            />
+                dataKey="date"
+                tickFormatter={date => {
+                  const dateObj = new Date(date);
+                  return dateObj.toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    ...(dateObj.getFullYear() !== new Date().getFullYear() && { year: '2-digit' }),
+                  });
+                }}
+                interval="preserveStartEnd"
+                minTickGap={30}
+              />
               <YAxis />
               <Tooltip
                 formatter={(value: number) => [`$${value.toFixed(2)}`, undefined]}
-                labelFormatter={date => new Date(date).toLocaleDateString('en-US', {
-                  weekday: 'short',
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric'
-                })}
-                contentStyle={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '4px' }}
+                labelFormatter={date =>
+                  new Date(date).toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                  })
+                }
+                contentStyle={{
+                  backgroundColor: '#fff',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                }}
               />
               <Legend />
               <ReferenceLine y={0} stroke="#000" strokeWidth={1} strokeOpacity={0.5} />
