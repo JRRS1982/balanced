@@ -144,10 +144,7 @@ export default function TransactionsPage() {
 
   // Get current month transactions
   const currentMonthTransactions = useMemo(() => {
-    console.log('Recalculating currentMonthTransactions with transactions:', transactions);
-    const filtered = transactions.filter(transaction => isCurrentMonth(transaction.date));
-    console.log('Current month transactions:', filtered);
-    return filtered;
+    return transactions.filter(transaction => isCurrentMonth(transaction.date));
   }, [transactions]);
 
   // Generate chart data
