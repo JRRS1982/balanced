@@ -15,8 +15,9 @@ export const isCurrentMonth = (dateString: string): boolean => {
     if (isNaN(date.getTime())) return false;
 
     return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-  } catch (e) {
-    console.error(`Invalid date: ${dateString}, error: ${e.message}`);
+  } catch (e: unknown) {
+    const error = e as Error;
+    console.error(`Invalid date: ${dateString}, error: ${error.message}`);
     return false;
   }
 };
@@ -31,8 +32,9 @@ export const formatDateToISOString = (date: string | Date): string => {
       throw new Error('Invalid date');
     }
     return dateObj.toISOString().split('T')[0];
-  } catch (e) {
-    console.error(`Error formatting date: ${date}, error: ${e.message}`);
+  } catch (e: unknown) {
+    const error = e as Error;
+    console.error(`Error formatting date: ${date}, error: ${error.message}`);
     return '';
   }
 };
@@ -73,8 +75,9 @@ export const standardizeDateFormat = (dateString: string): string => {
       return parsedDate.toISOString().split('T')[0];
     }
     return dateString; // Return original if parsing fails
-  } catch (e) {
-    console.error(`Error parsing transaction date: ${dateString}, error: ${e.message}`);
+  } catch (e: unknown) {
+    const error = e as Error;
+    console.error(`Error parsing transaction date: ${dateString}, error: ${error.message}`);
     return dateString; // Return original if error occurs
   }
 };

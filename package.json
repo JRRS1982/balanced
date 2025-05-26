@@ -9,6 +9,7 @@
     "lint": "next lint",
     "format": "prettier --write .",
     "test": "jest",
+    "typecheck": "tsc --noEmit",
     "docker:dev:build": "docker compose -f compose.dev.yml --env-file .env.development build",
     "docker:dev:up": "docker compose -f compose.dev.yml --env-file .env.development up",
     "docker:dev:down": "docker compose -f compose.dev.yml --env-file .env.development down --remove-orphans && docker image prune -f",
