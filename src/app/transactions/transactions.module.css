@@ -19,6 +19,34 @@
   margin-bottom: 2rem;
 }
 
+.chartHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dateRangeSelector {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.datePickerContainer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.datePicker {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
 .chartContainer {
   margin: 1.5rem 0;
   border: 1px solid #f0f0f0;

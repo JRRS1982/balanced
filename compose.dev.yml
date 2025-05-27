@@ -9,7 +9,7 @@ services:
       dockerfile: Dockerfile.dev
       args:
         - NODE_ENV=development # Build-time environment variable
-    container_name: money_app_dev
+    container_name: balanced_app_dev
     env_file:
       - .env.development # Runtime environment variables
     environment:
@@ -21,17 +21,17 @@ services:
       - '5555:5555' # For Prisma Studio
     volumes:
       - .:/app # bind the current directory to app in the container
-      - /app/node_modules # use the node_modules from the container
-      - /app/.next # use the .next directory from the container
+      - /app/src/generated # prevent host directory from mounting over container's version
+      - /app/.next # prevent host directory from mounting over container's version
     depends_on:
       db:
         condition: service_healthy
-    # run the db migrations before starting the app
+    # Run migrations, generate prisma, and start the app
     command: >
-      sh -c "npx prisma migrate deploy && npm run dev"
+      sh -c "npx prisma generate && npx prisma migrate deploy && npm run dev"
 
   db:
-    container_name: money_db_dev
+    container_name: balanced_db_dev
     image: postgres:16-alpine
     restart: always
     env_file:
@@ -59,4 +59,4 @@ services:
 
 volumes:
   postgres_data_dev:
-    name: money_postgres_dev
+    name: balanced_postgres_dev

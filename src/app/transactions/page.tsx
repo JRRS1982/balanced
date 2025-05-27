@@ -44,6 +44,16 @@ export default function TransactionsPage() {
     searchTerm: '',
   });
 
+  // Chart date range state
+  const [chartDateRange, setChartDateRange] = useState({
+    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+      .toISOString()
+      .split('T')[0],
+    endDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)
+      .toISOString()
+      .split('T')[0],
+  });
+
   const addTransaction = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -142,26 +152,46 @@ export default function TransactionsPage() {
     [budgetData]
   );
 
-  // Get current month transactions
-  const currentMonthTransactions = useMemo(() => {
-    return transactions.filter(transaction => isCurrentMonth(transaction.date));
-  }, [transactions]);
+  // Get transactions for the selected date range
+  const dateRangeTransactions = useMemo(() => {
+    return transactions.filter(transaction => {
+      const transactionDate = new Date(transaction.date);
+      const startDate = new Date(chartDateRange.startDate);
+      const endDate = new Date(chartDateRange.endDate);
+
+      // Reset time components for accurate date comparison
+      transactionDate.setHours(0, 0, 0, 0);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(0, 0, 0, 0);
+
+      return transactionDate >= startDate && transactionDate <= endDate;
+    });
+  }, [transactions, chartDateRange]);
 
   // Generate chart data
   const chartData = useMemo(() => {
     const totalMonthlyBudget = calculateBudgetTotalMemo('expense');
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = today.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const dailyBudget = totalMonthlyBudget / daysInMonth;
+
+    // Use selected date range instead of current month
+    const startDate = new Date(chartDateRange.startDate);
+    const endDate = new Date(chartDateRange.endDate);
+
+    // Calculate daily budget based on selected date range
+    const dayDiff =
+      Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    const dailyBudget = totalMonthlyBudget / dayDiff;
+
     const transactionsByDate: Record<string, { income: number; expenses: number }> = {};
     const allDates: string[] = [];
-    const lastDayOfMonth = new Date(year, month + 1, 0);
 
-    // Generate dates for exactly this month
-    for (let day = 1; day <= lastDayOfMonth.getDate(); day++) {
-      // Create a string in YYYY-MM-DD format for this day
+    // Generate dates for selected date range
+    const currentDate = new Date(startDate);
+
+    while (currentDate <= endDate) {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      const day = currentDate.getDate();
+
       // Ensure month is zero-padded (May = 05)
       const monthStr = String(month + 1).padStart(2, '0');
       // Ensure day is zero-padded
@@ -174,10 +204,13 @@ export default function TransactionsPage() {
 
       // Initialize transaction data for this date
       transactionsByDate[dateString] = { income: 0, expenses: 0 };
+
+      // Move to next day
+      currentDate.setDate(currentDate.getDate() + 1);
     }
 
     // Fill in actual transaction values
-    currentMonthTransactions.forEach(transaction => {
+    dateRangeTransactions.forEach(transaction => {
       const dateString = transaction.date;
 
       if (transactionsByDate[dateString]) {
@@ -237,12 +270,13 @@ export default function TransactionsPage() {
     }
 
     return result;
-  }, [currentMonthTransactions, calculateBudgetTotalMemo]);
+  }, [dateRangeTransactions, calculateBudgetTotalMemo, chartDateRange]);
 
   // Calculate budget progress
   const budgetProgress = useMemo(() => {
     const totalBudget = calculateBudgetTotalMemo('expense');
-    const totalExpenses = currentMonthTransactions
+    // Get actual spending for the selected date range
+    const totalExpenses = dateRangeTransactions
       .filter(t => t.type === 'expense')
       .reduce((sum, t) => sum + t.amount, 0);
 
@@ -257,34 +291,81 @@ export default function TransactionsPage() {
       remaining: totalBudget - totalExpenses,
     };
     return result;
-  }, [currentMonthTransactions, calculateBudgetTotalMemo]);
+  }, [dateRangeTransactions, calculateBudgetTotalMemo]);
 
   return (
     <div className={styles.container}>
       <h1 className={styles.title}>Transactions</h1>
 
       <div className={styles.budgetChart}>
-        <h2>
-          Budget Tracking:{' '}
-          {new Date(new Date().getFullYear(), new Date().getMonth(), 1).toLocaleDateString(
-            'en-US',
-            { month: 'short', day: 'numeric' }
-          )}
-          {' - '}
-          {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toLocaleDateString(
-            'en-US',
-            { month: 'short', day: 'numeric' }
-          )}
-        </h2>
+        <div className={styles.chartHeader}>
+          <h2>Budget Tracking</h2>
+          <div className={styles.dateRangeSelector}>
+            <div className={styles.datePickerContainer}>
+              <label htmlFor="chartStartDate">From:</label>
+              <input
+                type="date"
+                id="chartStartDate"
+                value={chartDateRange.startDate}
+                onChange={e =>
+                  setChartDateRange(prev => ({
+                    ...prev,
+                    startDate: e.target.value,
+                  }))
+                }
+                className={styles.datePicker}
+              />
+            </div>
+            <div className={styles.datePickerContainer}>
+              <label htmlFor="chartEndDate">To:</label>
+              <input
+                type="date"
+                id="chartEndDate"
+                value={chartDateRange.endDate}
+                onChange={e =>
+                  setChartDateRange(prev => ({
+                    ...prev,
+                    endDate: e.target.value,
+                  }))
+                }
+                className={styles.datePicker}
+              />
+            </div>
+          </div>
+        </div>
         <div className={styles.chartContainer}>
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" tickFormatter={date => new Date(date).getDate().toString()} />
+              <XAxis
+                dataKey="date"
+                tickFormatter={date => {
+                  const dateObj = new Date(date);
+                  return dateObj.toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    ...(dateObj.getFullYear() !== new Date().getFullYear() && { year: '2-digit' }),
+                  });
+                }}
+                interval="preserveStartEnd"
+                minTickGap={30}
+              />
               <YAxis />
               <Tooltip
                 formatter={(value: number) => [`$${value.toFixed(2)}`, undefined]}
-                labelFormatter={date => new Date(date).toLocaleDateString()}
+                labelFormatter={date =>
+                  new Date(date).toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                  })
+                }
+                contentStyle={{
+                  backgroundColor: '#fff',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                }}
               />
               <Legend />
               <ReferenceLine y={0} stroke="#000" strokeWidth={1} strokeOpacity={0.5} />
@@ -304,7 +385,7 @@ export default function TransactionsPage() {
                 strokeDasharray="3 3"
                 fill="#ff0000"
                 fillOpacity={0.1}
-                name="Budget Position"
+                name="Budget Position (pro-rata)"
                 isAnimationActive={true}
               />
             </AreaChart>
