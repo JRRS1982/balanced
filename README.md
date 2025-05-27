@@ -23,6 +23,9 @@ Improve a users net worth by making it easier for them to see where they are spe
 3. Run `npm run docker:dev` to start the development server in a docker container and visit <http://localhost:3000>, or `npm install` and `npm run dev` to start the development server locally and visit <http://localhost:3000>
 4. You should then be able to navigate around the application and create a user / login using Auth0
 
+<!-- TODO: remove this note when postinstall is removed and the deployment is not to vercel-->
+nb there is a postinstall script that runs `prisma generate` to generate the Prisma client. This is not required to run the application, but is required in Vercel deployments which do not use docker.
+
 ## Technologies Used
 
 - **Frontend**:
