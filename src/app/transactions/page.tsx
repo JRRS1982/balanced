@@ -291,7 +291,7 @@ export default function TransactionsPage() {
       remaining: totalBudget - totalExpenses,
     };
     return result;
-  }, [dateRangeTransactions, calculateBudgetTotalMemo, chartDateRange]);
+  }, [dateRangeTransactions, calculateBudgetTotalMemo]);
 
   return (
     <div className={styles.container}>

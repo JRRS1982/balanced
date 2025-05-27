@@ -21,14 +21,14 @@ services:
       - '5555:5555' # For Prisma Studio
     volumes:
       - .:/app # bind the current directory to app in the container
-      - /app/node_modules # use the node_modules from the container
-      - /app/.next # use the .next directory from the container
+      - /app/src/generated # prevent host directory from mounting over container's version
+      - /app/.next # prevent host directory from mounting over container's version
     depends_on:
       db:
         condition: service_healthy
-    # run the db migrations before starting the app
+    # Run migrations, generate prisma, and start the app
     command: >
-      sh -c "npx prisma migrate deploy && npm run dev"
+      sh -c "npx prisma generate && npx prisma migrate deploy && npm run dev"
 
   db:
     container_name: balanced_db_dev
