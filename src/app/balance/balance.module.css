@@ -1,4 +1,4 @@
-.budgetContainer {
+.balanceSheetContainer {
   max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
@@ -20,16 +20,24 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
-.mainSectionTitle {
+.mainSectionHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 15px;
   padding-bottom: 10px;
   border-bottom: 1px solid #eee;
-  font-size: 1.5rem;
-  font-weight: bold;
+}
+
+.mainSectionHeader h2 {
+  margin: 0;
   color: #333;
+  font-size: 1.5rem;
+}
+
+.mainSectionTotal {
+  font-weight: bold;
+  font-size: 1.2rem;
 }
 
 .subsection {
@@ -47,7 +55,7 @@
   margin-bottom: 10px;
 }
 
-.subsectionName {
+.subsectionHeader input {
   flex-grow: 1;
   margin-right: 10px;
   padding: 5px 10px;
@@ -56,42 +64,12 @@
   font-size: 1rem;
 }
 
-.subsectionName:focus {
-  border-color: #4a6fa5;
-  outline: none;
+.subsectionControls {
+  display: flex;
+  gap: 5px;
 }
 
-.budgetTable {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.budgetTable th {
-  text-align: left;
-  padding: 8px;
-  border-bottom: 1px solid #ddd;
-  color: #666;
-  font-weight: 600;
-}
-
-.budgetTable td {
-  padding: 8px;
-  border-bottom: 1px solid #eee;
-}
-
-.inputField {
-  width: 100%;
-  padding: 5px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-}
-
-.inputField:focus {
-  border-color: #4a6fa5;
-  outline: none;
-}
-
-.addButton {
+.button {
   background-color: #4a6fa5;
   color: white;
   border: none;
@@ -100,33 +78,76 @@
   cursor: pointer;
   font-size: 0.9rem;
   transition: background-color 0.2s;
-  margin: 10px 0 0 0;
 }
 
-.addButton:hover {
+.button:hover {
   background-color: #3c5a80;
 }
 
-.removeButton {
+.dangerButton {
   background-color: #e74c3c;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 5px 10px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: background-color 0.2s;
 }
 
-.removeButton:hover {
+.dangerButton:hover {
   background-color: #c0392b;
 }
 
-.mainSectionTotal {
-  font-weight: bold;
-  font-size: 1.2rem;
+.itemsTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.itemsTable th {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid #ddd;
+  color: #666;
+  font-weight: 600;
+}
+
+.itemsTable td {
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.itemsTable input {
+  width: 100%;
+  padding: 5px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.subsectionTotal {
   text-align: right;
+  padding: 10px;
+  font-weight: bold;
+}
+
+.addRowButton {
   margin-top: 10px;
+  width: 100%;
+  padding: 8px;
+  background-color: #f1f1f1;
+  border: 1px dashed #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  color: #666;
+}
+
+.addRowButton:hover {
+  background-color: #e9e9e9;
+}
+
+.addSectionButton {
+  margin-top: 10px;
+  padding: 8px 16px;
+  background-color: #4a6fa5;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
 }
 
 .summary {
@@ -137,22 +158,14 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
-.summaryItem {
+.summaryRow {
   display: flex;
   justify-content: space-between;
   padding: 10px 0;
   border-bottom: 1px solid #eee;
 }
 
-.summaryLabel {
-  font-weight: 500;
-}
-
-.summaryValue {
-  font-weight: 500;
-}
-
-.summaryItem:last-child {
+.summaryRow:last-child {
   border-bottom: none;
   font-weight: bold;
   margin-top: 10px;
@@ -161,9 +174,9 @@
 }
 
 .positive {
-  color: #28a745;
+  color: #27ae60;
 }
 
 .negative {
-  color: #dc3545;
+  color: #e74c3c;
 }

@@ -52,3 +52,24 @@ model BudgetItem {
   category      BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   @@index([categoryId])
 }
+
+model BalanceCategory {
+  id          String        @id @default(cuid())
+  name        String
+  type        String        // "assets" or "liabilities"
+  userId      String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  items       BalanceItem[]
+}
+
+model BalanceItem {
+  id            String         @id @default(cuid())
+  description   String
+  amount        Float
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  categoryId    String
+  category      BalanceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  @@index([categoryId])
+}
