@@ -14,21 +14,28 @@ services:
       - .env.development # Runtime environment variables
     environment:
       # Runtime environment variables - these override env_file
-      DATABASE_URL: 'postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}'
       NODE_ENV: 'development'
     ports:
       - '3000:3000'
-      - '5555:5555' # For Prisma Studio
     volumes:
-      - .:/app # bind the current directory to app in the container
-      - /app/src/generated # prevent host directory from mounting over container's version
-      - /app/.next # prevent host directory from mounting over container's version
+      # Mount source code for development
+      # This mounts the ./src directory from your host machine to /app/src in the container. The :ro makes it read-only, so there is live reloading of the app when you change source code without permission issues
+      - ./src:/app/src:ro
+      - ./public:/app/public:ro
+      - ./prisma:/app/prisma:ro
+      # Mount config files
+      - ./package.json:/app/package.json:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./.env.development:/app/.env:ro
+      # Keep container versions of these directories to avoid permission issues
+      # This creates an "anonymous volume" that preserves the container's version of /app/node_modules/ and allow write access to it without permission issues, so i.e. when next tries to write in .next, or prisma to generated it can
+      - /app/node_modules/
+      - /app/.next/
+      - /app/src/generated
     depends_on:
       db:
         condition: service_healthy
-    # Run migrations, generate prisma, and start the app
-    command: >
-      sh -c "npx prisma generate && npx prisma migrate deploy && npm run dev"
+    command: sh -c "npx prisma generate && npx prisma migrate deploy && npm run dev"
 
   db:
     container_name: balanced_db_dev
@@ -37,13 +44,9 @@ services:
     env_file:
       - .env.development
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
-      # Initialize database with:
-      # - UTF8 encoding for proper character support
-      # - 'C' locale for fastest, byte-wise sorting (recommended for development)
-      # - This helps avoid collation version warnings
+      POSTGRES_USER: dev_user
+      POSTGRES_PASSWORD: dev_password
+      POSTGRES_DB: balanced_dev
       POSTGRES_INITDB_ARGS: '--encoding=UTF8 --lc-collate=C --lc-ctype=C'
     ports:
       - '${DB_PORT}:5432' # host:container
@@ -56,6 +59,21 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  studio:
+    container_name: balanced_studio_dev
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.development
+    command: sh -c "npx prisma studio --port 5555"
+    ports:
+      - '5555:5555'
 
 volumes:
   postgres_data_dev:

@@ -1,0 +1,21 @@
+# Node modules and build output
+node_modules
+.next
+dist
+
+# Logs
+*.log
+
+# Env files (optional, if you're copying envs separately or mounting them)
+.env*
+!.env.development
+
+# OS/IDE clutter
+.DS_Store
+.vscode
+.idea
+
+# Test and coverage data
+coverage
+*.test.ts
+*.spec.ts

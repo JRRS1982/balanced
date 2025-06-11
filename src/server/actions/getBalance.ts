@@ -1,6 +1,11 @@
 'use server';
 
-import { BalanceMainSection, BalanceSubsection } from '../../app/balance/types';
+import {
+  BalanceCategory,
+  BalanceItem,
+  BalanceMainSection,
+  BalanceSubsection,
+} from '../../app/balance/types';
 import prisma from '../../lib/db';
 import { BalanceSectionId } from '../../app/balance/enums';
 
@@ -25,12 +30,12 @@ export async function getBalance(userId: string): Promise<BalanceData> {
         id: BalanceSectionId.ASSETS,
         name: 'Assets',
         subsections: categories
-          .filter(cat => cat.type === 'assets')
-          .map(category => {
+          .filter((cat: BalanceCategory) => cat.type === 'assets')
+          .map((category: BalanceCategory) => {
             const subsection: BalanceSubsection = {
               id: category.id,
               name: category.name,
-              items: category.items.map(item => ({
+              items: category.items.map((item: BalanceItem) => ({
                 id: item.id,
                 description: item.description,
                 amount: item.amount,
@@ -43,12 +48,12 @@ export async function getBalance(userId: string): Promise<BalanceData> {
         id: BalanceSectionId.LIABILITIES,
         name: 'Liabilities',
         subsections: categories
-          .filter(cat => cat.type === 'liabilities')
-          .map(category => {
+          .filter((cat: BalanceCategory) => cat.type === 'liabilities')
+          .map((category: BalanceCategory) => {
             const subsection: BalanceSubsection = {
               id: category.id,
               name: category.name,
-              items: category.items.map(item => ({
+              items: category.items.map((item: BalanceItem) => ({
                 id: item.id,
                 description: item.description,
                 amount: item.amount,
