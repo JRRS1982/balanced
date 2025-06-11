@@ -2,7 +2,16 @@
 
 import { useState } from 'react';
 import styles from './balance.module.css';
-import { BalanceMainSection, BalanceSubsection } from './types';
+import {
+  BalanceMainSection,
+  BalanceSubsection,
+  AddSubsectionParams,
+  EditSubsectionParams,
+  RemoveSubsectionParams,
+  AddItemParams,
+  EditItemParams,
+  RemoveItemParams,
+} from './types';
 import { BalanceSectionId } from './enums';
 
 // This is the client component that receives server data
@@ -13,7 +22,7 @@ export default function BalanceClient({
 }) {
   const [mainSections, setMainSections] = useState<BalanceMainSection[]>(initialSections);
 
-  const addSubsection = (mainSectionId: BalanceSectionId) => {
+  const addSubsection = ({ mainSectionId }: AddSubsectionParams) => {
     setMainSections(
       mainSections.map(mainSection => {
         if (mainSection.id === mainSectionId) {
@@ -35,7 +44,7 @@ export default function BalanceClient({
     );
   };
 
-  const editSubsection = (mainSectionId: string, subsectionId: string, newName: string) => {
+  const editSubsection = ({ mainSectionId, subsectionId, newName }: EditSubsectionParams) => {
     setMainSections(
       mainSections.map(mainSection => {
         if (mainSection.id === mainSectionId) {
@@ -57,7 +66,7 @@ export default function BalanceClient({
     );
   };
 
-  const removeSubsection = (mainSectionId: string, subsectionId: string) => {
+  const removeSubsection = ({ mainSectionId, subsectionId }: RemoveSubsectionParams) => {
     setMainSections(
       mainSections.map(mainSection => {
         if (mainSection.id === mainSectionId) {
@@ -73,7 +82,7 @@ export default function BalanceClient({
     );
   };
 
-  const addItem = (mainSectionId: string, subsectionId: string) => {
+  const addItem = ({ mainSectionId, subsectionId }: AddItemParams) => {
     setMainSections(
       mainSections.map(mainSection => {
         if (mainSection.id === mainSectionId) {
@@ -103,13 +112,7 @@ export default function BalanceClient({
     );
   };
 
-  const editItem = (
-    mainSectionId: string,
-    subsectionId: string,
-    itemId: string,
-    field: 'description' | 'amount',
-    value: string | number
-  ) => {
+  const editItem = ({ mainSectionId, subsectionId, itemId, field, value }: EditItemParams) => {
     setMainSections(
       mainSections.map(mainSection => {
         if (mainSection.id === mainSectionId) {
@@ -139,7 +142,7 @@ export default function BalanceClient({
     );
   };
 
-  const removeItem = (mainSectionId: string, subsectionId: string, itemId: string) => {
+  const removeItem = ({ mainSectionId, subsectionId, itemId }: RemoveItemParams) => {
     setMainSections(
       mainSections.map(mainSection => {
         if (mainSection.id === mainSectionId) {
@@ -171,9 +174,11 @@ export default function BalanceClient({
     }, 0);
   };
 
-  const calculateNetWorth = () => {
-    const assetsSection = mainSections.find(section => section.id === 'assets');
-    const liabilitiesSection = mainSections.find(section => section.id === 'liabilities');
+  const calculateNetWorth = ({ mainSections }: { mainSections: BalanceMainSection[] }) => {
+    const assetsSection = mainSections.find(section => section.id === BalanceSectionId.ASSETS);
+    const liabilitiesSection = mainSections.find(
+      section => section.id === BalanceSectionId.LIABILITIES
+    );
 
     const totalAssets = assetsSection ? calculateMainSectionTotal(assetsSection) : 0;
     const totalLiabilities = liabilitiesSection ? calculateMainSectionTotal(liabilitiesSection) : 0;
@@ -200,12 +205,23 @@ export default function BalanceClient({
                 <input
                   type="text"
                   value={subsection.name}
-                  onChange={e => editSubsection(mainSection.id, subsection.id, e.target.value)}
+                  onChange={e =>
+                    editSubsection({
+                      mainSectionId: mainSection.id,
+                      subsectionId: subsection.id,
+                      newName: e.target.value,
+                    })
+                  }
                 />
                 <div className={styles.subsectionControls}>
                   <button
                     className={`${styles.button} ${styles.dangerButton}`}
-                    onClick={() => removeSubsection(mainSection.id, subsection.id)}
+                    onClick={() =>
+                      removeSubsection({
+                        mainSectionId: mainSection.id,
+                        subsectionId: subsection.id,
+                      })
+                    }
                   >
                     Remove
                   </button>
@@ -228,13 +244,13 @@ export default function BalanceClient({
                           type="text"
                           value={item.description}
                           onChange={e =>
-                            editItem(
-                              mainSection.id,
-                              subsection.id,
-                              item.id,
-                              'description',
-                              e.target.value
-                            )
+                            editItem({
+                              mainSectionId: mainSection.id,
+                              subsectionId: subsection.id,
+                              itemId: item.id,
+                              field: 'description',
+                              value: e.target.value,
+                            })
                           }
                         />
                       </td>
@@ -243,20 +259,26 @@ export default function BalanceClient({
                           type="number"
                           value={item.amount}
                           onChange={e =>
-                            editItem(
-                              mainSection.id,
-                              subsection.id,
-                              item.id,
-                              'amount',
-                              parseFloat(e.target.value) || 0
-                            )
+                            editItem({
+                              mainSectionId: mainSection.id,
+                              subsectionId: subsection.id,
+                              itemId: item.id,
+                              field: 'amount',
+                              value: parseFloat(e.target.value) || 0,
+                            })
                           }
                         />
                       </td>
                       <td>
                         <button
                           className={`${styles.button} ${styles.dangerButton}`}
-                          onClick={() => removeItem(mainSection.id, subsection.id, item.id)}
+                          onClick={() =>
+                            removeItem({
+                              mainSectionId: mainSection.id,
+                              subsectionId: subsection.id,
+                              itemId: item.id,
+                            })
+                          }
                         >
                           X
                         </button>
@@ -276,14 +298,19 @@ export default function BalanceClient({
 
               <button
                 className={styles.addRowButton}
-                onClick={() => addItem(mainSection.id, subsection.id)}
+                onClick={() =>
+                  addItem({ mainSectionId: mainSection.id, subsectionId: subsection.id })
+                }
               >
                 + Add Item
               </button>
             </div>
           ))}
 
-          <button className={styles.addSectionButton} onClick={() => addSubsection(mainSection.id)}>
+          <button
+            className={styles.addSectionButton}
+            onClick={() => addSubsection({ mainSectionId: mainSection.id })}
+          >
             + Add {mainSection.name === 'Assets' ? 'Asset' : 'Liability'} Category
           </button>
         </div>
@@ -318,8 +345,10 @@ export default function BalanceClient({
         </div>
         <div className={styles.summaryRow}>
           <div>Net Worth:</div>
-          <div className={calculateNetWorth() >= 0 ? styles.positive : styles.negative}>
-            ${calculateNetWorth().toFixed(2)}
+          <div
+            className={calculateNetWorth({ mainSections }) >= 0 ? styles.positive : styles.negative}
+          >
+            ${calculateNetWorth({ mainSections }).toFixed(2)}
           </div>
         </div>
       </div>
