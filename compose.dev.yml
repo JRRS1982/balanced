@@ -7,49 +7,40 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-      args:
-        - NODE_ENV=development # Build-time environment variable
     container_name: balanced_app_dev
-    env_file:
-      - .env.development # Runtime environment variables
     environment:
       # Runtime environment variables - these override env_file
-      DATABASE_URL: 'postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}'
-      NODE_ENV: 'development'
+      - CHOKIDAR_USEPOLLING=true # Polling for file changes
+      - WATCHPACK_POLLING=true # Polling for file changes
+    env_file:
+      - .env.development # Runtime environment variables
     ports:
       - '3000:3000'
-      - '5555:5555' # For Prisma Studio
     volumes:
-      - .:/app # bind the current directory to app in the container
-      - /app/src/generated # prevent host directory from mounting over container's version
-      - /app/.next # prevent host directory from mounting over container's version
+      - .:/app # Mount the entire project directory
+      - /app/node_modules # Keep container versions of these directories to avoid permission issues
+      - /app/.next # Keep container versions of these directories to avoid permission issues
     depends_on:
       db:
         condition: service_healthy
-    # Run migrations, generate prisma, and start the app
-    command: >
-      sh -c "npx prisma generate && npx prisma migrate deploy && npm run dev"
+    command: sh -c "npx prisma migrate deploy && npm run dev"
 
   db:
     container_name: balanced_db_dev
     image: postgres:16-alpine
-    restart: always
+    restart: always # So any changes to the database are shown
     env_file:
       - .env.development
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
-      # Initialize database with:
-      # - UTF8 encoding for proper character support
-      # - 'C' locale for fastest, byte-wise sorting (recommended for development)
-      # - This helps avoid collation version warnings
+      POSTGRES_USER: dev_user
+      POSTGRES_PASSWORD: dev_password
+      POSTGRES_DB: balanced_dev
       POSTGRES_INITDB_ARGS: '--encoding=UTF8 --lc-collate=C --lc-ctype=C'
     ports:
       - '${DB_PORT}:5432' # host:container
     volumes:
       # persist the database data between container restarts in dev
-      - postgres_data_dev:/var/lib/postgresql/data
+      - db:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_NAME}']
       interval: 5s
@@ -57,6 +48,21 @@ services:
       retries: 5
       start_period: 10s
 
+  studio:
+    container_name: balanced_studio_dev
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.development
+    command: sh -c "npx prisma studio --port 5555"
+    ports:
+      - '5555:5555'
+
 volumes:
-  postgres_data_dev:
-    name: balanced_postgres_dev
+  db:
+    name: balanced_postgres_dev_db

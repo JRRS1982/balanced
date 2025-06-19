@@ -1,8 +1,28 @@
 'use server';
 
 import { BudgetMainSection } from '../../app/budget/types';
-import type { BudgetCategory, BudgetItem } from '../../generated/prisma';
 import prisma from '../../lib/db';
+
+// Define proper interfaces for our models based on schema
+interface BudgetCategory {
+  id: string;
+  name: string;
+  type: string;
+  userId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  items?: BudgetItem[];
+}
+
+interface BudgetItem {
+  id: string;
+  description: string;
+  amount: number;
+  createdAt: Date;
+  updatedAt: Date;
+  categoryId: string;
+  category?: BudgetCategory;
+}
 
 type BudgetData = {
   categories: BudgetCategory[];

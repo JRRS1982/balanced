@@ -28,6 +28,11 @@ export default function Navigation() {
             Transactions
           </Link>
         </li>
+        <li>
+          <Link href="/balance" className={pathname === '/balance' ? styles.active : ''}>
+            Balance
+          </Link>
+        </li>
       </ul>
     </nav>
   );

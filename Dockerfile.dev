@@ -1,61 +1,52 @@
-# syntax=docker/dockerfile:1
+# Dockerfile.dev
 
-###############################
-# Base stage with common dependencies
-FROM node:18-alpine AS base
+################# Dependencies #################
+# Use a minimal base image to reduce the size of the final image
+FROM node:18-alpine AS deps
 WORKDIR /app
-RUN apk add --no-cache libc6-compat
 
-###############################
-# Install dependencies as root
-FROM base AS deps
-COPY package.json package-lock.json ./
-RUN npm ci
+# Copy package files and Prisma schema first
+COPY package*.json ./
+COPY prisma ./prisma/
 
-###############################
-# Build the application as root
-FROM base AS builder
+# Install dependencies
+RUN npm install
+
+################# Build #################
+FROM node:18-alpine AS build
+WORKDIR /app
+
+# Copy dependencies and source code
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Create directories with proper permissions
-RUN mkdir -p /app/src/generated /app/.next \
-&& chmod -R 755 /app/src/generated /app/.next
-
-# Copy .env.development to .env for the build
-COPY .env.development .env
-
-# Create a non-root user called nextjs in nodejs group i.e. not 1000
-RUN addgroup --system --gid 1001 nodejs \
-&& adduser --system --uid 1001 nextjs
-
+# Generate Prisma client
 RUN npx prisma generate
 RUN npm run build
 
-###############################
-# Run as non-root user
-FROM base AS runner
-ENV NODE_ENV=production
+################# Deploy #################
+# Create and set permissions for Next.js
+FROM node:18-alpine AS deploy
 WORKDIR /app
 
-# Create the same non-root user in the runner stage
-RUN addgroup --system --gid 1001 nodejs \
-  && adduser --system --uid 1001 nextjs
+# Copy package files and node_modules
+COPY --from=build /app/package.json /app/package-lock.json* ./
+COPY --from=build /app/node_modules ./node_modules
 
-# Copy the built app and required files
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/src/generated ./src/generated
-COPY --from=builder /app/prisma ./prisma
+# Copy Next.js build output
+COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
 
-# Set permissions for all in app to the nextjs user in nodejs group
-RUN chown -R nextjs:nodejs /app
+# Copy Prisma schema and client
+COPY --from=build /app/prisma ./prisma
 
-# Switch to the non-root user
-USER nextjs
+# Copy Next.js and TypeScript configs
+COPY --from=build /app/next.config.* ./
+COPY --from=build /app/tsconfig*.json ./
 
-# Expose the application port and define entrypoint
+# Copy source code for development
+COPY --from=build /app/src ./src
+
 EXPOSE 3000
-CMD ["npm", "start"]
+
+CMD ["npm", "run", "dev"]

@@ -1,17 +1,10 @@
 #!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
 
-# Exit when any command fails
+# Exit on error
 set -e
 
-# Run Next.js TypeScript type checking
-echo "🔍 Checking TypeScript types..."
-npm run typecheck
+# Load husky environment
+. "$(dirname -- "$0")/_/husky.sh"
 
-# Run lint-staged to format, lint and stage changes
-npx lint-staged
-
-# Run tests
-npm test
-
-echo "✅ Commit validated successfully!"
+# Run pre-commit script from the root directory for clarity of scripts
+npm run pre-commit

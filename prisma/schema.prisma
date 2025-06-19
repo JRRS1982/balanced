@@ -1,12 +1,8 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -50,5 +46,26 @@ model BudgetItem {
   updatedAt     DateTime       @updatedAt
   categoryId    String
   category      BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  @@index([categoryId])
+}
+
+model BalanceCategory {
+  id          String        @id @default(cuid())
+  name        String
+  type        String        // "assets" or "liabilities"
+  userId      String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  items       BalanceItem[]
+}
+
+model BalanceItem {
+  id            String         @id @default(cuid())
+  description   String
+  amount        Float
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  categoryId    String
+  category      BalanceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   @@index([categoryId])
 }
