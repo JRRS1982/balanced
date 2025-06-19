@@ -7,40 +7,39 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-      args:
-        - NODE_ENV=development # Build-time environment variable
+      # args:
+      #   - NODE_ENV=development # Build-time environment variable
     container_name: balanced_app_dev
     env_file:
       - .env.development # Runtime environment variables
-    environment:
-      # Runtime environment variables - these override env_file
-      NODE_ENV: 'development'
+    # environment:
+    #   # Runtime environment variables - these override env_file
+    #   NODE_ENV: 'development'
     ports:
       - '3000:3000'
-    volumes:
-      # Mount source code for development
-      # This mounts the ./src directory from your host machine to /app/src in the container. The :ro makes it read-only, so there is live reloading of the app when you change source code without permission issues
-      - ./src:/app/src:ro
-      - ./public:/app/public:ro
-      - ./prisma:/app/prisma:ro
-      # Mount config files
-      - ./package.json:/app/package.json:ro
-      - ./tsconfig.json:/app/tsconfig.json:ro
-      - ./.env.development:/app/.env:ro
-      # Keep container versions of these directories to avoid permission issues
-      # This creates an "anonymous volume" that preserves the container's version of /app/node_modules/ and allow write access to it without permission issues, so i.e. when next tries to write in .next, or prisma to generated it can
-      - /app/node_modules/
-      - /app/.next/
-      - /app/src/generated
+    # volumes:
+    # Keep container versions of these directories to avoid permission issues
+    # - node_modules_dev:/app/node_modules
+    # - next_dev:/app/.next
+    # Mount source code for development
+    # - ./src:/app/src
+    # - ./public:/app/public
+    # - ./prisma:/app/prisma
+    # Mount config files
+    # - ./package.json:/app/package.json
+    # - ./tsconfig.json:/app/tsconfig.json
+    # - ./.env.development:/app/.env
+    # Command to run when the container starts
+    # command: sh -c "npx prisma generate && npx prisma migrate deploy && npm run dev"
     depends_on:
       db:
         condition: service_healthy
-    command: sh -c "npx prisma generate && npx prisma migrate deploy && npm run dev"
+    command: sh -c "npx prisma migrate deploy && npm run dev"
 
   db:
     container_name: balanced_db_dev
     image: postgres:16-alpine
-    restart: always
+    restart: always # So any changes to the database are shown
     env_file:
       - .env.development
     environment:
@@ -52,7 +51,7 @@ services:
       - '${DB_PORT}:5432' # host:container
     volumes:
       # persist the database data between container restarts in dev
-      - postgres_data_dev:/var/lib/postgresql/data
+      - db:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_NAME}']
       interval: 5s
@@ -76,5 +75,5 @@ services:
       - '5555:5555'
 
 volumes:
-  postgres_data_dev:
-    name: balanced_postgres_dev
+  db:
+    name: balanced_postgres_dev_db

@@ -10,7 +10,6 @@
     "format": "prettier --write .",
     "test": "jest",
     "typecheck": "tsc --noEmit",
-    "postinstall": "prisma generate",
     "pre-commit": "./scripts/pre-commit.sh",
     "docker:dev:build": "docker compose -f compose.dev.yml --env-file .env.development build",
     "docker:dev:up": "docker compose -f compose.dev.yml --env-file .env.development up",
