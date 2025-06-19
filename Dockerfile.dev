@@ -1,33 +1,51 @@
 # Dockerfile.dev
 
-FROM node:18-alpine
-
-# Create app directory
+################# Dependencies #################
+# Use a minimal base image to reduce the size of the final image
+FROM node:18-alpine AS deps
 WORKDIR /app
 
-# Add a non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-
-# Copy package files and prisma schema
-COPY package.json package-lock.json ./
+# Copy package files and Prisma schema first
+COPY package*.json ./
 COPY prisma ./prisma/
 
 # Install dependencies
-RUN npm ci
+RUN npm install
+
+################# Build #################
+FROM node:18-alpine AS build
+WORKDIR /app
+
+# Copy dependencies and source code
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
 
 # Generate Prisma client
 RUN npx prisma generate
+RUN npm run build
 
-# Copy the rest of the source code
-COPY . .
+################# Deploy #################
+# Create and set permissions for Next.js
+FROM node:18-alpine AS deploy
+WORKDIR /app
 
-# Create Next.js build directory and ensure it has proper permissions
-RUN mkdir -p /app/.next /app/src/generated \
-    && chown -R appuser:appgroup /app \
-    && chmod -R 777 /app/.next /app/src/generated
+# Copy package files and node_modules
+COPY --from=build /app/package.json /app/package-lock.json* ./
+COPY --from=build /app/node_modules ./node_modules
 
-# Switch to non-root user
-USER appuser
+# Copy Next.js build output
+COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
+
+# Copy Prisma schema and client
+COPY --from=build /app/prisma ./prisma
+
+# Copy Next.js and TypeScript configs
+COPY --from=build /app/next.config.* ./
+COPY --from=build /app/tsconfig*.json ./
+
+# Copy source code for development
+COPY --from=build /app/src ./src
 
 EXPOSE 3000
 

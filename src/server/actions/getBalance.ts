@@ -30,7 +30,7 @@ export async function getBalance(userId: string): Promise<BalanceData> {
         id: BalanceSectionId.ASSETS,
         name: 'Assets',
         subsections: categories
-          .filter((cat: BalanceCategory) => cat.type === 'assets')
+          .filter((cat: BalanceCategory) => cat.type === BalanceSectionId.ASSETS)
           .map((category: BalanceCategory) => {
             const subsection: BalanceSubsection = {
               id: category.id,
@@ -48,7 +48,10 @@ export async function getBalance(userId: string): Promise<BalanceData> {
         id: BalanceSectionId.LIABILITIES,
         name: 'Liabilities',
         subsections: categories
-          .filter((cat: BalanceCategory) => cat.type === 'liabilities')
+          .filter((cat: BalanceCategory) => {
+            if (cat.type === BalanceSectionId.LIABILITIES) return true;
+            return false;
+          })
           .map((category: BalanceCategory) => {
             const subsection: BalanceSubsection = {
               id: category.id,

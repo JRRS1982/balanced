@@ -20,8 +20,9 @@ Improve a users net worth by making it easier for them to see where they are spe
 
 1. Clone the repository: `git clone https://github.com/JRRS1982/balanced.git`
 2. Update the environment variables in the `.env.development` file
-3. Run `npm run docker:dev:build` to build the development docker images
-4. Run `npm run docker:dev:up` to start the development docker containers and visit <http://localhost:3000> to view the application running in a docker container
+3. Install dependencies: `npm install` on the host machine to enable local development
+4. Run `npm run docker:dev:build` to build the development docker images
+5. Run `npm run docker:dev:up` to start the development docker containers and visit <http://localhost:3000> to view the application running in a docker container
 
 <!-- TODO: remove this note when postinstall is removed and the deployment is not to vercel-->
 

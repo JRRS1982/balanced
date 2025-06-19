@@ -1,6 +1,6 @@
 export const BalanceSectionId = {
-  ASSETS: 'assets' as const,
-  LIABILITIES: 'liabilities' as const,
-} as const;
+  ASSETS: 'assets',
+  LIABILITIES: 'liabilities',
+};
 
 export type BalanceSectionId = (typeof BalanceSectionId)[keyof typeof BalanceSectionId];
