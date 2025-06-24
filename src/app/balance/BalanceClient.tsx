@@ -187,14 +187,14 @@ export default function BalanceClient({
   };
 
   return (
-    <div className={styles.balanceSheetContainer}>
-      <h1 className={styles.title}>Balance</h1>
+    <div className={styles.balanceSheet}>
+      <h1 className={styles.balanceSheet__title}>Balance</h1>
 
       {mainSections.map(mainSection => (
-        <div key={mainSection.id} className={styles.mainSection}>
-          <div className={styles.mainSectionHeader}>
+        <div key={mainSection.id} className={styles.balanceSheet__mainSection}>
+          <div className={styles.balanceSheet__mainSectionHeader}>
             <h2>{mainSection.name}</h2>
-            <div className={styles.mainSectionTotal}>
+            <div className={styles.balanceSheet__mainSectionTotal}>
               ${calculateMainSectionTotal(mainSection).toFixed(2)}
             </div>
           </div>
@@ -213,7 +213,7 @@ export default function BalanceClient({
                     })
                   }
                 />
-                <div className={styles.subsectionControls}>
+                <div className={styles.balanceSheet__controls}>
                   <button
                     className={`${styles.button} ${styles.dangerButton}`}
                     onClick={() =>
