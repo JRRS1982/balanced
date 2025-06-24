@@ -19,8 +19,8 @@ Improve a users net worth by making it easier for them to see where they are spe
 ### Development
 
 1. Clone the repository: `git clone https://github.com/JRRS1982/balanced.git`
-2. Update the environment variables in the `.env.development` file
-3. Install dependencies: `npm install` on the host machine to enable local development
+2. Install dependencies: `npm install` on the host machine to enable local development
+3. Update the environment variables in the `.env.development` file if necessary
 4. Run `npm run docker:dev:build` to build the development docker images
 5. Run `npm run docker:dev:up` to start the development docker containers and visit <http://localhost:3000> to view the application running in a docker container
 

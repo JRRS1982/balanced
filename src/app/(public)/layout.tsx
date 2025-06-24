@@ -1,6 +1,4 @@
-import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
-import Navigation from '@/components/Navigation';
 import './globals.css';
 
 const geistSans = Geist({
@@ -13,25 +11,19 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
 });
 
-export const metadata: Metadata = {
+export const metadata = {
   title: 'Balanced.money',
   description: 'Your personal financial assistant',
 };
 
-export default function RootLayout({
+export default function PublicLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // if logged in, show Navigation and children
-  // else show children
-
-  const isLoggedIn = false;
-
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        {isLoggedIn ? <Navigation /> : null}
         <main>{children}</main>
       </body>
     </html>
