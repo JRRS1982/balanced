@@ -1,0 +1,283 @@
+name: Deploy to Raspberry Pi
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy'
+        required: false # allows for manual re-deployment
+        default: 'latest'
+
+env:
+  DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/balanced
+
+jobs:
+  lint:
+    name: Lint and Type Check the source code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Type checking
+        run: npm run typecheck
+
+  test:
+    name: Run Tests on the source code
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test
+
+  build:
+    name: Build Docker Image
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKERHUB_REPO }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha,format=long
+            type=ref,event=branch
+            type=raw,value={{date 'YYYYMMDD-HHmmss'}}
+            latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.prod
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache,mode=max
+
+  deploy:
+    name: Deploy to Raspberry Pi
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    steps:
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: balanced-docker-image
+          path: /tmp
+
+      - name: Install private SSH key on GitHub runner to enable SSH connection to Raspberry Pi
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          if_key_exists: fail # Replace with "replace" if you want to replace it
+
+      - name: Transfer Docker image to Raspberry Pi
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_HOST: ${{ secrets.PI_HOST }}
+        run: |
+          # Transfer the Docker image to the Raspberry Pi
+          scp /tmp/balanced-image.tar $PI_USERNAME@$PI_HOST:/tmp/balanced-image.tar
+
+      - name: Load Docker image on Raspberry Pi
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_HOST: ${{ secrets.PI_HOST }}
+        run: |
+          # Load the Docker image on the Pi
+          ssh $PI_USERNAME@$PI_HOST "docker load -i /tmp/balanced-image.tar"
+
+      - name: Tag Docker image with timestamp
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_HOST: ${{ secrets.PI_HOST }}
+        run: |
+          # Tag with timestamp for versioning
+          ssh $PI_USERNAME@$PI_HOST "
+            TIMESTAMP=\$(date +%Y%m%d%H%M%S)
+            docker tag balanced:latest balanced:\${TIMESTAMP}
+            echo \${TIMESTAMP} > /tmp/deploy_timestamp
+          "
+
+      - name: Prepare for blue-green deployment
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_HOST: ${{ secrets.PI_HOST }}
+        run: |
+          # Identify existing container and determine port mapping
+          ssh $PI_USERNAME@$PI_HOST "
+            CURRENT_CONTAINER=\$(docker ps -q -f name=balanced-app)
+
+            # Determine which port to use for the new container (blue-green)
+            if [ -z \"\$CURRENT_CONTAINER\" ]; then
+              # No container running, use default
+              echo '3000' > /tmp/new_port
+              echo '3001' > /tmp/old_port
+            else
+              # Check if current container uses 3000 internally
+              CURRENT_PORT=\$(docker port \$CURRENT_CONTAINER | grep -o '0.0.0.0:3000' | wc -l)
+              if [ \"\$CURRENT_PORT\" -gt 0 ]; then
+                echo '3001' > /tmp/new_port
+                echo '3000' > /tmp/old_port
+              else
+                echo '3000' > /tmp/new_port
+                echo '3001' > /tmp/old_port
+              fi
+            fi
+
+            # Copy volume information if existing container is running
+            if [ ! -z \"\$CURRENT_CONTAINER\" ]; then
+            # Get volume mapping from current container
+            docker inspect -f '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' \$CURRENT_CONTAINER > /tmp/container_volumes
+            echo \$CURRENT_CONTAINER > /tmp/current_container_id
+            fi
+            "
+
+      - name: Deploy new container
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_HOST: ${{ secrets.PI_HOST }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+          NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
+        run: |
+          # Create and start the new container
+          ssh $PI_USERNAME@$PI_HOST "
+            # Load saved values from previous steps
+            TIMESTAMP=\$(cat /tmp/deploy_timestamp)
+            NEW_PORT=\$(cat /tmp/new_port)
+
+            # Prepare volume args if any exist
+            VOLUME_ARGS=\"\"
+            if [ -f /tmp/container_volumes ]; then
+              VOLUMES=\$(cat /tmp/container_volumes)
+              if [ ! -z \"\$VOLUMES\" ]; then
+                for VOLUME in \$VOLUMES; do
+                  VOLUME_ARGS=\"\$VOLUME_ARGS -v \$VOLUME\"
+                done
+              fi
+            fi
+
+            # Run the new container
+            docker run -d \
+              --name balanced-app-new \
+              --restart unless-stopped \
+              -p 3000:\$NEW_PORT \
+              -e DATABASE_URL='$DATABASE_URL' \
+              -e NEXTAUTH_SECRET='$NEXTAUTH_SECRET' \
+              -e NEXTAUTH_URL='$NEXTAUTH_URL' \
+              \$VOLUME_ARGS \
+              balanced:\${TIMESTAMP}
+          "
+
+      - name: Health check and finalize deployment
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_HOST: ${{ secrets.PI_HOST }}
+        run: |
+          # Verify the new container is healthy before switching
+          ssh $PI_USERNAME@$PI_HOST "
+            # Wait for the new container to be healthy
+            echo 'Waiting for new container to be ready...'
+            timeout=30
+            # Wait for the new container to be healthy
+            echo 'Waiting for new container to be ready...'
+            timeout=30
+            while [ \$timeout -gt 0 ]; do
+              if curl -s http://localhost:3000 > /dev/null; then
+                echo 'New container is ready'
+                break
+              fi
+              echo 'Waiting for service to start...'
+              sleep 2
+              timeout=\$((timeout-2))
+            done
+
+            # Switch to new container if healthy
+            if [ \$timeout -gt 0 ]; then
+              if [ -f /tmp/current_container_id ]; then
+                CURRENT_CONTAINER=\$(cat /tmp/current_container_id)
+                docker stop \$CURRENT_CONTAINER
+                docker rm \$CURRENT_CONTAINER
+              fi
+
+              # Rename the new container to the standard name
+              docker rename balanced-app-new balanced-app
+              echo 'Deployment successful'
+            else
+              # Rollback if new container fails health check
+              echo 'New container failed to start properly'
+              docker stop balanced-app-new
+              docker rm balanced-app-new
+              echo 'Deployment failed - rolling back'
+              exit 1
+            fi
+          "
+
+      - name: Cleanup
+        if: always() # Run cleanup even if previous steps fail
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_HOST: ${{ secrets.PI_HOST }}
+        run: |
+          # Clean up temporary files and old images
+          ssh $PI_USERNAME@$PI_HOST "
+            # Remove the temporary image file
+            rm /tmp/balanced-image.tar
+
+            # Clean up temporary files
+            rm -f /tmp/deploy_timestamp
+            rm -f /tmp/new_port
+            rm -f /tmp/old_port
+            rm -f /tmp/container_volumes
+            rm -f /tmp/current_container_id
+
+            # Clean up old images (keep only the 3 most recent)
+            docker image ls balanced --format '{{.Tag}}' | sort -r | tail -n +4 | xargs -I {} docker rmi balanced:{} || true
+          "

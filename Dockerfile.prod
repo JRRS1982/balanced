@@ -1,0 +1,79 @@
+# Dockerfile.prod
+
+################# Dependencies #################
+FROM node:18-alpine AS deps
+WORKDIR /app
+
+# Add package that contains curl for healthchecks
+RUN apk add --no-cache curl
+
+# Install necessary system dependencies
+RUN apk add --no-cache libc6-compat
+
+# Copy package files and Prisma schema first (for better layer caching)
+COPY package.json package-lock.json* ./
+COPY prisma ./prisma/
+
+# Install production dependencies only
+RUN npm ci --only=production && npm cache clean --force
+
+################# Build #################
+FROM node:18-alpine AS build
+WORKDIR /app
+
+# Set Node environment to production during build for optimizations
+ENV NODE_ENV=production
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/prisma ./prisma
+
+# Copy all source files
+COPY . .
+
+# Generate Prisma client and build application
+RUN npx prisma generate
+
+# Next will handle the TS compilation and bundle code for production
+RUN npm run build
+
+# Remove development dependencies to minimize size
+RUN npm prune --production
+
+################# Runner #################
+FROM node:18-alpine AS runner
+WORKDIR /app
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Add packages for security and diagnostics
+RUN apk add --no-cache curl dumb-init
+
+# Create a non-root user with explicit UID/GID for security
+RUN addgroup --system --gid 1001 nodejs \
+    && adduser --system --uid 1001 nextjs
+
+# Copy only production necessary files from builder
+COPY --from=build /app/package.json /app/package-lock.json* ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
+COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/next.config.* ./
+COPY --from=build /app/src ./src
+
+# Set proper ownership and permissions
+RUN chown -R nextjs:nodejs /app \
+    && chmod -R 500 /app/node_modules \
+    && chmod -R 500 /app/.next
+
+# Switch to non-root user
+USER nextjs
+
+EXPOSE 3000
+
+# Use dumb-init as PID 1 to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["npm", "run", "start"]
