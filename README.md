@@ -24,10 +24,6 @@ Improve a users net worth by making it easier for them to see where they are spe
 4. Run `npm run docker:dev:build` to build the development docker images
 5. Run `npm run docker:dev:up` to start the development docker containers and visit <http://localhost:3000> to view the application running in a docker container
 
-<!-- TODO: remove this note when postinstall is removed and the deployment is not to vercel-->
-
-nb there is a postinstall script that runs `prisma generate` to generate the Prisma client. This is not required to run the application, but is required in Vercel deployments which do not use docker.
-
 #### Pre-commit hooks
 
 When you commit to the repository, the `./scripts/pre-commit.sh` script will ensure you are not committing any files that are not formatted or linted and ensure that the tests pass. It will also prevent you from committing to the master or main branch. It will run;
