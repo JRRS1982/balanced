@@ -1,0 +1,99 @@
+# Production Docker Compose Configuration
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: balanced_app_prod
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - .env.production
+    ports:
+      - '3000:3000'
+    restart: always
+    command: npm run start
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/api/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # database service: migrations are handled by github action
+  db:
+    container_name: balanced_db_prod
+    image: postgres:16-alpine
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --lc-collate=C --lc-ctype=C'
+    volumes:
+      # persist the database data between container restarts in production
+      - balanced_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_NAME}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # database backup service to create daily backups
+  backup:
+    container_name: balanced_backup_prod
+    image: postgres:16-alpine
+    restart: always
+    env_file:
+      - .env.production
+    volumes:
+      - ./backups:/backups
+    depends_on:
+      - db
+    command: >
+      sh -c "mkdir -p /backups &&
+             echo '0 2 * * * pg_dump -h db -U ${DB_USER} -d ${DB_NAME} -f /backups/balanced_backup_`date +\%Y\%m\%d\%H\%M\%S`.sql' > /var/spool/cron/crontabs/root &&
+             crond -f"
+
+  # nginx service to serve the app from the public internet with SSL
+  nginx:
+    container_name: balanced_nginx_prod
+    image: nginx:alpine
+    restart: always
+    ports:
+      - '80:80' # HTTP port (for redirects to HTTPS)
+      - '443:443' # HTTPS port
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro # SSL certificates
+      - ./nginx-logs:/var/log/nginx # Persist nginx logs
+      - ./static-html:/usr/share/nginx/html:ro # Static error pages
+    depends_on:
+      app:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ['CMD', 'nginx', '-t']
+      interval: 60s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  balanced_prod_data:
+    name: balanced_prod_data
