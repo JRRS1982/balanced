@@ -106,7 +106,7 @@ jobs:
     # if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
     steps:
       - name: Download Docker image artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: balanced-docker-image
           path: /tmp
@@ -142,7 +142,7 @@ jobs:
           # Tag with timestamp for versioning
           ssh $PI_USERNAME@$PI_HOST "
             TIMESTAMP=\$(date +%Y%m%d%H%M%S)
-            docker tag balanced:latest balanced:\${TIMESTAMP}
+            docker tag ${{ env.DOCKERHUB_REPO }}:latest balanced:\${TIMESTAMP}
             echo \${TIMESTAMP} > /tmp/deploy_timestamp
           "
 
