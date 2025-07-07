@@ -92,7 +92,8 @@ jobs:
         with:
           context: .
           file: ./Dockerfile.prod
-          push: ${{ github.event_name != 'pull_request' }}
+          # push: ${{ github.event_name != 'pull_request' }} # only push new image on push, not on pull request to master
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache
