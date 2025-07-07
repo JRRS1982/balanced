@@ -105,12 +105,6 @@ jobs:
     # only deploy on push, not on pull request
     # if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
     steps:
-      - name: Download Docker image artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: balanced-docker-image
-          path: /tmp
-
       - name: Install private SSH key on GitHub runner to enable SSH connection to Raspberry Pi
         uses: shimataro/ssh-key-action@v2
         with:
@@ -118,21 +112,15 @@ jobs:
           known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           if_key_exists: fail # Replace with "replace" if you want to replace it
 
-      - name: Transfer Docker image to Raspberry Pi
+      - name: Pull Docker image on Raspberry Pi
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
           PI_HOST: ${{ secrets.PI_HOST }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          # Transfer the Docker image to the Raspberry Pi
-          scp /tmp/balanced-image.tar $PI_USERNAME@$PI_HOST:/tmp/balanced-image.tar
-
-      - name: Load Docker image on Raspberry Pi
-        env:
-          PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_HOST: ${{ secrets.PI_HOST }}
-        run: |
-          # Load the Docker image on the Pi
-          ssh $PI_USERNAME@$PI_HOST "docker load -i /tmp/balanced-image.tar"
+          # Login to Docker Hub and pull the image on the Pi
+          ssh $PI_USERNAME@$PI_HOST "docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_TOKEN && docker pull ${{ env.DOCKERHUB_REPO }}:latest"
 
       - name: Tag Docker image with timestamp
         env:
