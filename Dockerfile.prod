@@ -55,19 +55,17 @@ RUN apk add --no-cache curl dumb-init
 RUN addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 nextjs
 
-# Copy only production necessary files from builder
-COPY --from=build /app/package.json /app/package-lock.json* ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/.next ./.next
-COPY --from=build /app/public ./public
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/next.config.* ./
-COPY --from=build /app/src ./src
+# Copy only production necessary files from builder and set ownership
+COPY --from=build --chown=nextjs:nodejs /app/package.json /app/package-lock.json* ./
+COPY --from=build --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=build --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=build --chown=nextjs:nodejs /app/public ./public
+COPY --from=build --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=build --chown=nextjs:nodejs /app/next.config.* ./
+COPY --from=build --chown=nextjs:nodejs /app/src ./src
 
-# Set proper ownership and permissions
-RUN chown -R nextjs:nodejs /app \
-    && chmod -R 500 /app/node_modules \
-    && chmod -R 500 /app/.next
+# Set read and execute permissions for node_modules and .next (not write)for security
+RUN chmod -R 500 /app/node_modules && chmod -R 500 /app/.next
 
 # Switch to non-root user
 USER nextjs

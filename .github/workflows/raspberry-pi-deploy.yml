@@ -102,7 +102,8 @@ jobs:
     name: Deploy to Raspberry Pi
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    # only deploy on push, not on pull request
+    # if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
     steps:
       - name: Download Docker image artifact
         uses: actions/download-artifact@v3
