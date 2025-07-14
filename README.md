@@ -144,11 +144,16 @@ flowchart TB
 ```mermaid
 flowchart TB
     %% Production System Components
-    subgraph "Raspberry Pi Host"
-        app_blue[App Container\nPort 3000]
-        app_green[App Container\nPort 3001]
+    users([Internet Users]) --> Cloudflare[Cloudflare Edge Network]
 
-        nginx[Nginx Reverse Proxy] --> active{Active Port}
+    Cloudflare --> cloudflared[cloudflared Agent]
+
+    subgraph "Raspberry Pi Host"
+        cloudflared --> nginx
+        app_blue[Docker Service: App - Port 3000]
+        app_green[Docker Service: App - Port 3001]
+
+        nginx[Docker Service: Nginx Reverse Proxy] --> active{Active Port}
 
         active -->|Currently Active| app_blue
         active -->|Standby| app_green
@@ -156,13 +161,11 @@ flowchart TB
         app_blue -.-> db
         app_green -.-> db
 
-        db[(PostgreSQL Database)]
+        db[(Docker Volume: PostgreSQL Database)]
         backup[Daily Backup Service]
 
         db -.-> backup
     end
-
-    users((Internet Users)) --> nginx
 
     classDef container fill:#bbf,stroke:#333,stroke-width:2px
     classDef database fill:#ccf,stroke:#333,stroke-width:2px
