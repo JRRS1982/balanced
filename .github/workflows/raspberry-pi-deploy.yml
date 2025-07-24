@@ -1,3 +1,13 @@
+# Deploy to Raspberry Pi via Cloudflare Tunnel
+#
+# Required secrets:
+#  - PI_CLOUDFLARE_HOSTNAME: The hostname for SSH access via Cloudflare Tunnel (e.g., ssh.yourdomain.com)
+#  - PI_USERNAME: The SSH username for the Raspberry Pi
+#  - DOCKERHUB_USERNAME: Your Docker Hub username
+#  - DOCKERHUB_TOKEN: Your Docker Hub access token
+#  - SSH_PRIVATE_KEY: Private key for SSH access
+#  - SSH_KNOWN_HOSTS: Known hosts file content
+
 name: Deploy to Raspberry Pi
 
 on:
@@ -106,6 +116,13 @@ jobs:
     # only deploy on push, not on pull request
     # if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
     steps:
+      - name: Install cloudflared on GitHub runner
+        run: |
+          # Download and install cloudflared on the GitHub runner
+          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+          cloudflared --version
+
       - name: Install private SSH key on GitHub runner to enable SSH connection to Raspberry Pi
         uses: shimataro/ssh-key-action@v2
         with:
@@ -116,32 +133,41 @@ jobs:
       - name: Pull Docker image on Raspberry Pi
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_HOST: ${{ secrets.PI_HOST }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }} # Use Cloudflare hostname
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          # Login to Docker Hub and pull the image on the Pi
-          ssh $PI_USERNAME@$PI_HOST "docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_TOKEN && docker pull ${{ env.DOCKERHUB_REPO }}:latest"
+          # Login to Docker Hub and pull the image on the Pi via Cloudflare Tunnel
+          # Use -o ProxyCommand to establish the SSH connection through cloudflared
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_TOKEN && docker pull ${{ env.DOCKERHUB_REPO }}:latest"
 
       - name: Tag Docker image with timestamp
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_HOST: ${{ secrets.PI_HOST }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }} # Use Cloudflare hostname
         run: |
           # Tag with timestamp for versioning
-          ssh $PI_USERNAME@$PI_HOST "
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
             TIMESTAMP=\$(date +%Y%m%d%H%M%S)
             docker tag ${{ env.DOCKERHUB_REPO }}:latest balanced:\${TIMESTAMP}
             echo \${TIMESTAMP} > /tmp/deploy_timestamp
           "
 
+      # Note: Make sure to add the PI_CLOUDFLARE_HOSTNAME secret in GitHub repository settings
+      # This should be the hostname created by Cloudflare Tunnel (e.g., ssh.yourdomain.com)
       - name: Prepare for blue-green deployment
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_HOST: ${{ secrets.PI_HOST }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
         run: |
           # Identify existing container and determine port mapping
-          ssh $PI_USERNAME@$PI_HOST "
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
             CURRENT_CONTAINER=\$(docker ps -q -f name=balanced-app)
 
             # Determine which port to use for the new container (blue-green)
@@ -172,13 +198,15 @@ jobs:
       - name: Deploy new container
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_HOST: ${{ secrets.PI_HOST }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
           NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
         run: |
           # Create and start the new container
-          ssh $PI_USERNAME@$PI_HOST "
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
             # Load saved values from previous steps
             TIMESTAMP=\$(cat /tmp/deploy_timestamp)
             NEW_PORT=\$(cat /tmp/new_port)
@@ -209,10 +237,12 @@ jobs:
       - name: Health check and finalize deployment
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_HOST: ${{ secrets.PI_HOST }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
         run: |
           # Verify the new container is healthy before switching
-          ssh $PI_USERNAME@$PI_HOST "
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
             # Wait for the new container to be healthy
             echo 'Waiting for new container to be ready...'
             timeout=30
@@ -254,10 +284,12 @@ jobs:
         if: always() # Run cleanup even if previous steps fail
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_HOST: ${{ secrets.PI_HOST }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
         run: |
           # Clean up temporary files and old images
-          ssh $PI_USERNAME@$PI_HOST "
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
             # Remove the temporary image file
             rm /tmp/balanced-image.tar
 
