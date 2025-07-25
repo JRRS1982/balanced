@@ -143,9 +143,10 @@ jobs:
         run: |
           # Login to Docker Hub and pull the image on the Pi via Cloudflare Tunnel
           # Use -o ProxyCommand to establish the SSH connection through cloudflared
+          # Force platform to linux/arm64 when pulling to handle architecture compatibility
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_TOKEN && docker pull ${{ env.DOCKERHUB_REPO }}:latest"
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_TOKEN && docker pull --platform linux/arm64 ${{ env.DOCKERHUB_REPO }}:latest"
 
       - name: Tag Docker image with timestamp
         env:
