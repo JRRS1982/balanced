@@ -107,7 +107,7 @@ jobs:
           file: ./Dockerfile.prod
           # push: ${{ github.event_name != 'pull_request' }} # only push new image on push, not on pull request to master
           push: true
-          platforms: linux/amd64,linux/arm64,linux/arm/v7 # So the image can be deployed to Raspberry Pi / Linux PC / Windows PC
+          platforms: linux/amd64,linux/arm64,linux/arm/v7 # Covers x86_64 PCs, Raspberry Pi 3+ (arm64), and older Pi models (arm/v7)
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache
