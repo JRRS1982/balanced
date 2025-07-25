@@ -76,6 +76,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up QEMU for multi-architecture builds
+        uses: docker/setup-qemu-action@v2
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -104,6 +107,7 @@ jobs:
           file: ./Dockerfile.prod
           # push: ${{ github.event_name != 'pull_request' }} # only push new image on push, not on pull request to master
           push: true
+          platforms: linux/amd64,linux/arm64,linux/arm/v7 # So the image can be deployed to Raspberry Pi / Linux PC / Windows PC
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache
