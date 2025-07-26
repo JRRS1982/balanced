@@ -137,29 +137,55 @@ jobs:
       - name: Pull Docker image on Raspberry Pi
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }} # Use Cloudflare hostname
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           # Login to Docker Hub and pull the image on the Pi via Cloudflare Tunnel
-          # Use -o ProxyCommand to establish the SSH connection through cloudflared
-          # Force platform to linux/arm64 when pulling to handle architecture compatibility
+          echo "Starting Docker image pull on Raspberry Pi"
+
+          # Establish SSH connection through cloudflared
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_TOKEN && docker pull --platform linux/arm64 ${{ env.DOCKERHUB_REPO }}:latest"
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+            echo 'Starting Docker Hub login'
+            docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_TOKEN
+            
+            echo 'Pulling image from Docker Hub: ${{ env.DOCKERHUB_REPO }}:latest'
+            # Force platform to linux/arm64 for Raspberry Pi compatibility
+            docker pull --platform linux/arm64 ${{ env.DOCKERHUB_REPO }}:latest
+            
+            # Verify image was pulled successfully
+            echo 'Listing available Docker images after pull:'
+            docker images | grep ${{ env.DOCKERHUB_REPO }}
+          "
+          echo "Docker image pull completed"
 
       - name: Tag Docker image with timestamp
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }} # Use Cloudflare hostname
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
         run: |
-          # Tag with timestamp for versioning
+          # Create a timestamped tag for versioning
+          echo "Creating timestamped tag for deployment tracking"
+
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+            # Generate timestamp for version tagging
             TIMESTAMP=\$(date +%Y%m%d%H%M%S)
-            docker tag --platform=linux/arm64 ${{ env.DOCKERHUB_REPO }}:latest balanced:\${TIMESTAMP}
+            echo 'Creating tag with timestamp: '\${TIMESTAMP}
+            
+            # Tag the image with the timestamp
+            docker tag --platform=linux/arm64 ${{ env.DOCKERHUB_REPO }}:latest ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}
+            
+            # Verify tag was created and save timestamp for later use
+            echo 'Verifying tagged image:'
+            docker images | grep ${{ env.DOCKERHUB_REPO }}
+            
+            # Save timestamp for use in later deployment steps
             echo \${TIMESTAMP} > /tmp/deploy_timestamp
+            echo 'Deployment timestamp saved: '\$(cat /tmp/deploy_timestamp)
           "
 
       # Note: Make sure to add the PI_CLOUDFLARE_HOSTNAME secret in GitHub repository settings
@@ -169,36 +195,60 @@ jobs:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
           PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
         run: |
-          # Identify existing container and determine port mapping
+          # Set up blue-green deployment port configuration
+          echo "Preparing for blue-green deployment"
+
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+            echo 'Checking for existing application container...'
             CURRENT_CONTAINER=\$(docker ps -q -f name=balanced-app)
-
-            # Determine which port to use for the new container (blue-green)
+            
+            # Show running containers for debugging
+            echo 'Currently running containers:'
+            docker ps
+            
+            # Determine ports for blue-green deployment
+            echo 'Setting up blue-green deployment ports'
             if [ -z \"\$CURRENT_CONTAINER\" ]; then
-              # No container running, use default
+              echo 'No existing container found, using default ports'
               echo '3000' > /tmp/new_port
               echo '3001' > /tmp/old_port
             else
-              # Check if current container uses 3000 internally
+              echo 'Existing container found: '\$CURRENT_CONTAINER
+              # Check which port the current container is using
               CURRENT_PORT=\$(docker port \$CURRENT_CONTAINER | grep -o '0.0.0.0:3000' | wc -l)
               if [ \"\$CURRENT_PORT\" -gt 0 ]; then
+                echo 'Current container uses port 3000, new container will use port 3001'
                 echo '3001' > /tmp/new_port
                 echo '3000' > /tmp/old_port
               else
+                echo 'Current container uses port 3001, new container will use port 3000'
                 echo '3000' > /tmp/new_port
                 echo '3001' > /tmp/old_port
               fi
             fi
-
-            # Copy volume information if existing container is running
+            
+            echo 'Selected ports:'
+            echo 'New container port: '\$(cat /tmp/new_port)
+            echo 'Old container port: '\$(cat /tmp/old_port)
+            
+            # Copy volume configuration from existing container if available
             if [ ! -z \"\$CURRENT_CONTAINER\" ]; then
-            # Get volume mapping from current container
-            docker inspect -f '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' \$CURRENT_CONTAINER > /tmp/container_volumes
-            echo \$CURRENT_CONTAINER > /tmp/current_container_id
+              echo 'Extracting volume configuration from current container'
+              # Get volume mapping from current container
+              docker inspect -f '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' \$CURRENT_CONTAINER > /tmp/container_volumes
+              echo 'Volume configuration saved:'
+              cat /tmp/container_volumes
+              
+              # Save current container ID for later use
+              echo \$CURRENT_CONTAINER > /tmp/current_container_id
+              echo 'Current container ID saved: '\$(cat /tmp/current_container_id)
+            else
+              echo 'No existing container, no volumes to preserve'
             fi
             "
+          echo "Blue-green deployment preparation completed"
 
       - name: Deploy new container
         env:
@@ -208,26 +258,43 @@ jobs:
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
           NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
         run: |
-          # Create and start the new container
+          # Deploy the new container with the proper configuration
+          echo "Starting deployment of new container"
+
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
             # Load saved values from previous steps
             TIMESTAMP=\$(cat /tmp/deploy_timestamp)
             NEW_PORT=\$(cat /tmp/new_port)
-
-            # Prepare volume args if any exist
+            
+            echo 'Deploying new container with timestamp: '\$TIMESTAMP
+            echo 'Container will use internal port: '\$NEW_PORT
+            
+            # Set up volume arguments if needed
+            echo 'Setting up volume configuration'
             VOLUME_ARGS=\"\"
             if [ -f /tmp/container_volumes ]; then
               VOLUMES=\$(cat /tmp/container_volumes)
               if [ ! -z \"\$VOLUMES\" ]; then
+                echo 'Using volumes from previous container:'
                 for VOLUME in \$VOLUMES; do
+                  echo '  - '\$VOLUME
                   VOLUME_ARGS=\"\$VOLUME_ARGS -v \$VOLUME\"
                 done
+              else
+                echo 'No volumes found in configuration file'
               fi
+            else
+              echo 'No volume configuration file found'
             fi
-
-            # Run the new container with explicit platform to match the image
+            
+            # Debug container deployment
+            echo 'Available images:'
+            docker images
+            
+            # Run the new container with the correct image name and explicit platform
+            echo 'Running container with image ${{ env.DOCKERHUB_REPO }}:'\${TIMESTAMP}
             docker run --platform=linux/arm64 -d \
               --name balanced-app-new \
               --restart unless-stopped \
@@ -236,8 +303,13 @@ jobs:
               -e NEXTAUTH_SECRET='$NEXTAUTH_SECRET' \
               -e NEXTAUTH_URL='$NEXTAUTH_URL' \
               \$VOLUME_ARGS \
-              balanced:\${TIMESTAMP}
+              ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}
+            
+            # Verify container was created successfully
+            echo 'New container created:'
+            docker ps | grep balanced-app-new
           "
+          echo "New container deployment completed"
 
       - name: Health check and finalize deployment
         env:
