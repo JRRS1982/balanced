@@ -150,11 +150,11 @@ jobs:
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
             echo 'Starting Docker Hub login'
             docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_TOKEN
-            
+
             echo 'Pulling image from Docker Hub: ${{ env.DOCKERHUB_REPO }}:latest'
             # Force platform to linux/arm64 for Raspberry Pi compatibility
             docker pull --platform linux/arm64 ${{ env.DOCKERHUB_REPO }}:latest
-            
+
             # Verify image was pulled successfully
             echo 'Listing available Docker images after pull:'
             docker images | grep ${{ env.DOCKERHUB_REPO }}
@@ -175,15 +175,15 @@ jobs:
             # Generate timestamp for version tagging
             TIMESTAMP=\$(date +%Y%m%d%H%M%S)
             echo 'Creating tag with timestamp: '\${TIMESTAMP}
-            
+
             # Tag the image with the timestamp
             # Note: docker tag doesn't support the --platform flag
             docker tag ${{ env.DOCKERHUB_REPO }}:latest ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}
-            
+
             # Verify tag was created and save timestamp for later use
             echo 'Verifying tagged image:'
             docker images | grep ${{ env.DOCKERHUB_REPO }}
-            
+
             # Save timestamp for use in later deployment steps
             echo \${TIMESTAMP} > /tmp/deploy_timestamp
             echo 'Deployment timestamp saved: '\$(cat /tmp/deploy_timestamp)
@@ -204,11 +204,11 @@ jobs:
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
             echo 'Checking for existing application container...'
             CURRENT_CONTAINER=\$(docker ps -q -f name=balanced-app)
-            
+
             # Show running containers for debugging
             echo 'Currently running containers:'
             docker ps
-            
+
             # Determine ports for blue-green deployment
             echo 'Setting up blue-green deployment ports'
             if [ -z \"\$CURRENT_CONTAINER\" ]; then
@@ -229,19 +229,20 @@ jobs:
                 echo '3001' > /tmp/old_port
               fi
             fi
-            
+
             echo 'Selected ports:'
             echo 'New container port: '\$(cat /tmp/new_port)
             echo 'Old container port: '\$(cat /tmp/old_port)
-            
+
             # Copy volume configuration from existing container if available
             if [ ! -z \"\$CURRENT_CONTAINER\" ]; then
               echo 'Extracting volume configuration from current container'
-              # Get volume mapping from current container
-              docker inspect -f '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' \$CURRENT_CONTAINER > /tmp/container_volumes
+              # Get volume mapping using a variable to protect template syntax
+              TEMPLATE='{{"{{"}range .Mounts}}{{"{{"}}{{"."}}}Source}:{{"{{"}}{{"."}}}Destination}} {{"{{"}}end}}'
+              docker inspect -f "\$TEMPLATE" "\$CURRENT_CONTAINER" > /tmp/container_volumes
               echo 'Volume configuration saved:'
               cat /tmp/container_volumes
-              
+
               # Save current container ID for later use
               echo \$CURRENT_CONTAINER > /tmp/current_container_id
               echo 'Current container ID saved: '\$(cat /tmp/current_container_id)
@@ -268,10 +269,10 @@ jobs:
             # Load saved values from previous steps
             TIMESTAMP=\$(cat /tmp/deploy_timestamp)
             NEW_PORT=\$(cat /tmp/new_port)
-            
+
             echo 'Deploying new container with timestamp: '\$TIMESTAMP
             echo 'Container will use internal port: '\$NEW_PORT
-            
+
             # Set up volume arguments if needed
             echo 'Setting up volume configuration'
             VOLUME_ARGS=\"\"
@@ -289,22 +290,24 @@ jobs:
             else
               echo 'No volume configuration file found'
             fi
-            
+
             # Debug container deployment
             echo 'Available images:'
             docker images
-            
+
             # Run the new container with the correct image name and explicit platform
             echo 'Running container with the locally tagged image: ${{ env.DOCKERHUB_REPO }}:'\${TIMESTAMP}
-            
+
             # Debug: Confirm the locally tagged image exists before trying to use it
             echo 'Confirming image exists:'
-            docker images ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP} --format "{{.Repository}}:{{.Tag}}"
-            
-            # Add a check to ensure the image exists locally
-            if docker images ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP} --format "{{.Repository}}:{{.Tag}}" | grep -q .; then
+            # Check if image exists
+            IMAGE_EXISTS=0
+            docker images "${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}" --quiet | grep -q . || IMAGE_EXISTS=1
+
+            # Check if image exists using our helper script result
+            if [ "\$IMAGE_EXISTS" -eq 0 ]; then
               echo 'Image found locally, proceeding with deployment'
-              
+
               docker run --platform=linux/arm64 -d \
                 --name balanced-app-new \
                 --restart unless-stopped \
@@ -314,7 +317,7 @@ jobs:
                 -e NEXTAUTH_URL='$NEXTAUTH_URL' \
                 \$VOLUME_ARGS \
                 ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}
-                
+
               if [ $? -eq 0 ]; then
                 echo 'Container started successfully'
               else
@@ -327,7 +330,7 @@ jobs:
               docker images
               exit 1
             fi
-            
+
             # Verify container was created successfully
             echo 'New container created:'
             docker ps | grep balanced-app-new
@@ -355,13 +358,13 @@ jobs:
               docker rm -f balanced-app-new 2>/dev/null || true
               exit 1
             fi
-            
+
             echo 'Container is running, checking health...'
-            
+
             # Get port mapping info
             NEW_PORT=\$(cat /tmp/new_port 2>/dev/null || echo '3000')
             echo 'Container mapped to internal port: '\$NEW_PORT
-            
+
             # Wait for the application to be ready
             echo 'Waiting for application to become available (60s timeout)...'
             TIMEOUT_SEC=60
@@ -369,7 +372,7 @@ jobs:
             START_TIME=\$(date +%s)
             END_TIME=\$((START_TIME + TIMEOUT_SEC))
             CURRENT_TIME=\$START_TIME
-            
+
             # More reliable health check - first try direct curl
             while [ \$CURRENT_TIME -lt \$END_TIME ]; do
               if curl -s http://localhost:3000/ -o /dev/null; then
@@ -377,33 +380,40 @@ jobs:
                 APP_READY=true
                 break
               fi
-              
+
               # Show container status at intervals
               ELAPSED=\$((CURRENT_TIME - START_TIME))
               REMAINING=\$((TIMEOUT_SEC - ELAPSED))
-              
+
               if [ \$((ELAPSED % 15)) -eq 0 ]; then
                 echo 'Container status:'
-                docker ps --filter name=balanced-app-new --format "{{.Status}}"
-                
+                # Using heredoc to protect Docker template syntax
+                cat << 'EOT' > /tmp/container_status.sh
+                #!/bin/bash
+                docker ps --filter name=balanced-app-new --format '{{.Status}}'
+                EOT
+                chmod +x /tmp/container_status.sh
+                /tmp/container_status.sh
+                rm /tmp/container_status.sh
+
                 echo 'Recent container logs:'
                 docker logs --tail=10 balanced-app-new 2>/dev/null || echo 'No logs available'
               fi
-              
+
               echo "Waiting for service (\${REMAINING}s remaining)..."
               sleep \$WAIT_INTERVAL
               CURRENT_TIME=\$(date +%s)
             done
-            
+
             # Finalize deployment if health check passed
             if [ "\${APP_READY:-false}" = "true" ]; then
-              echo '✅ Health check passed!'
-              
+              echo '[SUCCESS] Health check passed!'
+
               # Clean up old container if it exists
               if [ -f /tmp/current_container_id ]; then
                 CURRENT_CONTAINER=\$(cat /tmp/current_container_id)
                 echo 'Stopping previous container: '\$CURRENT_CONTAINER
-                
+
                 # Stop with timeout and remove
                 docker stop --time=10 \$CURRENT_CONTAINER || true
                 docker rm \$CURRENT_CONTAINER || echo 'Warning: Could not remove old container'
@@ -411,30 +421,30 @@ jobs:
               else
                 echo 'No previous container found'
               fi
-              
+
               # Rename new container to standard name
               echo 'Setting new container as primary'
               docker rename balanced-app-new balanced-app
               if [ \$? -eq 0 ]; then
-                echo '🟢 DEPLOYMENT SUCCESSFUL 🟢'
+                echo '[SUCCESS] DEPLOYMENT SUCCESSFUL'
                 echo 'Application is now running'
               else
-                echo '⚠️ Warning: Could not rename container - verify manually'
+                echo '[WARNING] Could not rename container - verify manually'
                 # Don't fail the build for rename issue
               fi
             else
               # Health check failed - collect debug info and clean up
-              echo '❌ HEALTH CHECK FAILED: Application did not respond within timeout'
+              echo '[ERROR] HEALTH CHECK FAILED: Application did not respond within timeout'
               echo 'Container status:'
               docker ps -a --filter name=balanced-app-new
-              
+
               echo 'Complete container logs:'
               docker logs balanced-app-new
-              
+
               echo 'Cleaning up failed deployment...'
               docker stop balanced-app-new || true
               docker rm balanced-app-new || true
-              echo '❌ DEPLOYMENT FAILED - cleanup complete'
+              echo '[ERROR] DEPLOYMENT FAILED - cleanup complete'
               exit 1
             fi
           "
@@ -451,7 +461,7 @@ jobs:
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
             echo 'Running post-deployment cleanup...'
-            
+
             # Remove temporary image file if it exists
             rm -f /tmp/balanced-image.tar
 
@@ -462,11 +472,18 @@ jobs:
             # Clean up old images (keep only the 3 most recent)
             echo 'Cleaning up old Docker images (keeping 3 most recent)'
             REPO='${{ env.DOCKERHUB_REPO }}'
-            
-            # List tags and only remove if there are more than 3
-            TAGS=\$(docker images \$REPO --format '{{.Tag}}' | grep -v 'latest' | grep -v '<none>' | sort -r)
+
+            # Use heredoc approach for Docker template syntax
+            cat << 'EOT' > /tmp/list_tags.sh
+            #!/bin/bash
+            # Get tags using Docker's native template formatting
+            docker images "$1" --format '{{.Tag}}' | grep -v 'latest' | grep -v '<none>' | sort -r
+            EOT
+            chmod +x /tmp/list_tags.sh
+            TAGS=\$(/tmp/list_tags.sh "\$REPO")
+            rm /tmp/list_tags.sh
             COUNT=\$(echo "\$TAGS" | wc -l)
-            
+
             if [ \$COUNT -gt 3 ]; then
               echo "Found \$COUNT tags, removing old ones"
               echo "\$TAGS" | tail -n +4 | xargs -r -I {} docker rmi \$REPO:{} 2>/dev/null || true
@@ -474,10 +491,10 @@ jobs:
             else
               echo "Only \$COUNT tagged images found, no cleanup needed"
             fi
-            
+
             # General cleanup of dangling images
             echo 'Removing any dangling images'
             docker image prune -f
-            
+
             echo 'Cleanup completed successfully'
           "
