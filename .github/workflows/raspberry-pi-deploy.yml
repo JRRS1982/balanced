@@ -350,12 +350,35 @@ jobs:
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "set -e
             # First check if container is running
             echo 'Checking container status...'
-            if ! docker ps | grep -q balanced-app-new; then
-              echo '[ERROR] Container is not running'
-              echo 'Container logs:'
-              docker logs balanced-app-new 2>/dev/null || echo 'No logs available'
+            echo 'All running containers:'
+            docker ps --all
+
+            # Check if container exists but failed to start
+            if docker ps -a | grep -q balanced-app-new; then
+              echo 'Container exists but may have failed to start or exited quickly'
+              echo 'Container status:'
+              docker inspect balanced-app-new --format "{{.State.Status}}" || echo "Could not get status"
+              echo 'Container exit code:'
+              docker inspect balanced-app-new --format "{{.State.ExitCode}}" || echo "Could not get exit code"
+              echo 'Container creation time:'
+              docker inspect balanced-app-new --format "{{.Created}}" || echo "Could not get creation time"
+
+              echo 'Container startup logs:'
+              docker logs balanced-app-new 2>&1 || echo 'No logs available'
+
+              # Check for common container startup issues
+              echo 'Checking for missing environment variables:'
+              docker inspect balanced-app-new --format "{{.Config.Env}}" || echo "Could not inspect env vars"
+
+              # Check for port conflicts
+              echo 'Checking for port conflicts:'
+              netstat -tulpn | grep 3000 || echo "No conflicts on port 3000"
+
               echo 'Deployment failed - container failed to start properly'
               docker rm -f balanced-app-new 2>/dev/null || true
+              exit 1
+            else
+              echo 'Container balanced-app-new does not exist at all - deployment may have failed earlier'
               exit 1
             fi
 
@@ -435,12 +458,12 @@ jobs:
             else
               # Health check initially failed - try additional attempts
               echo '[WARNING] Initial health check failed - attempting extended checks'
-              
+
               # Try additional health checks with longer timeouts
               EXTENDED_ATTEMPTS=3
               for attempt in \$(seq 1 \$EXTENDED_ATTEMPTS); do
                 echo "Extended health check attempt \$attempt of \$EXTENDED_ATTEMPTS"
-                
+
                 # Check if Prisma/database connection is the issue
                 echo "Checking database connectivity..."
                 if docker exec balanced-app-new /bin/sh -c "cd /app && npx prisma migrate status" &>/dev/null; then
@@ -448,10 +471,10 @@ jobs:
                 else
                   echo "Database connection issues detected"
                 fi
-                
+
                 # Wait longer between extended checks
                 sleep 30
-                
+
                 # Try health check again
                 if curl -s http://localhost:\$NEW_PORT/ -o /dev/null; then
                   echo '[RECOVERED] Application is now responding on port '\$NEW_PORT
@@ -459,7 +482,7 @@ jobs:
                   break
                 fi
               done
-              
+
               # Final decision based on extended checks
               if [ "\${APP_READY:-false}" = "true" ]; then
                 echo '[SUCCESS] Extended health check passed!'
@@ -495,7 +518,7 @@ jobs:
 
                 echo 'Complete container logs:'
                 docker logs balanced-app-new
-                
+
                 # Check for common issues
                 echo 'Checking for common startup issues:'
                 docker logs balanced-app-new 2>&1 | grep -i "error\|exception\|failed" || echo "No common error patterns found"

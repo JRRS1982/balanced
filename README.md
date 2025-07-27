@@ -4,15 +4,25 @@ This is a personal project that I am undertaking to improve my ability as a soft
 
 ## Inspiration
 
-I used to work in personal financial advice and was inspired by one particular advisor who would provide an annual / semi / quarterly update to his clients in excel format - that i would prepare. This would be the basis of their meeting, additions (investments), subtractions (withdrawals, costs and fees) and the difference in the form of value and percentage change for that period of time presented in a simple table.
+I used to work in personal financial advice and was inspired by one particular advisor who would provide an annual (sometimes semi-annual or quarterly) update to his clients in excel format. This would be the basis of their meeting, additions (investments), subtractions (withdrawals, costs and fees) and the difference in the form of value and percentage change for that period of time presented so simply provided the client with a clear picture of their financial health, which i think most people would find useful.
 
 This was used to determine the growth / loss in a persons portfolio and compared to a predetermined well known index (aligned to the individuals attitude to risk). I would like to try and add something along those lines to this application.
 
-This is not an application built for providing financial advice, but built to track what a person has and how it is doing, so that they are are equipped to make better financial decisions.
+This is not an application built for providing financial advice, but built to help equip users to make better financial decisions.
 
 ## Purpose
 
-Improve a users net worth by making it easier for them to see where they are spending their money, and tracking the performance of their existing assets, so that they are are equipped to make better financial decisions.
+Improve a users decision making by making it easier for them to see where they are spending their money, and tracking the performance of their existing assets.
+
+## Success Metrics
+
+Users can register, login, and manage their financial data
+Professional-looking financial reports (Balance Sheet, Budget, Investment Portfolio, Transactions)
+Investment performance tracking against market indices
+Automated monthly email reminders
+Responsive design working across all devices
+Successful deployment and operation on Raspberry Pi
+Comprehensive test coverage and documentation
 
 ## Getting Started
 
