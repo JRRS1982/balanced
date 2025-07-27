@@ -177,7 +177,8 @@ jobs:
             echo 'Creating tag with timestamp: '\${TIMESTAMP}
             
             # Tag the image with the timestamp
-            docker tag --platform=linux/arm64 ${{ env.DOCKERHUB_REPO }}:latest ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}
+            # Note: docker tag doesn't support the --platform flag
+            docker tag ${{ env.DOCKERHUB_REPO }}:latest ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}
             
             # Verify tag was created and save timestamp for later use
             echo 'Verifying tagged image:'
@@ -294,16 +295,38 @@ jobs:
             docker images
             
             # Run the new container with the correct image name and explicit platform
-            echo 'Running container with image ${{ env.DOCKERHUB_REPO }}:'\${TIMESTAMP}
-            docker run --platform=linux/arm64 -d \
-              --name balanced-app-new \
-              --restart unless-stopped \
-              -p 3000:\$NEW_PORT \
-              -e DATABASE_URL='$DATABASE_URL' \
-              -e NEXTAUTH_SECRET='$NEXTAUTH_SECRET' \
-              -e NEXTAUTH_URL='$NEXTAUTH_URL' \
-              \$VOLUME_ARGS \
-              ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}
+            echo 'Running container with the locally tagged image: ${{ env.DOCKERHUB_REPO }}:'\${TIMESTAMP}
+            
+            # Debug: Confirm the locally tagged image exists before trying to use it
+            echo 'Confirming image exists:'
+            docker images ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP} --format "{{.Repository}}:{{.Tag}}"
+            
+            # Add a check to ensure the image exists locally
+            if docker images ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP} --format "{{.Repository}}:{{.Tag}}" | grep -q .; then
+              echo 'Image found locally, proceeding with deployment'
+              
+              docker run --platform=linux/arm64 -d \
+                --name balanced-app-new \
+                --restart unless-stopped \
+                -p 3000:\$NEW_PORT \
+                -e DATABASE_URL='$DATABASE_URL' \
+                -e NEXTAUTH_SECRET='$NEXTAUTH_SECRET' \
+                -e NEXTAUTH_URL='$NEXTAUTH_URL' \
+                \$VOLUME_ARGS \
+                ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}
+                
+              if [ $? -eq 0 ]; then
+                echo 'Container started successfully'
+              else
+                echo 'Error starting container'
+                exit 1
+              fi
+            else
+              echo 'ERROR: Tagged image not found locally. This likely indicates a problem with the tagging step.'
+              echo 'Available images:'
+              docker images
+              exit 1
+            fi
             
             # Verify container was created successfully
             echo 'New container created:'
