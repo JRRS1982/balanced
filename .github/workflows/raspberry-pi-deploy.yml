@@ -325,7 +325,7 @@ jobs:
                 exit 1
               fi
             else
-              echo 'ERROR: Tagged image not found locally. This likely indicates a problem with the tagging step.'
+              echo '[ERROR] Tagged image not found locally. This likely indicates a problem with the tagging step.'
               echo 'Available images:'
               docker images
               exit 1
@@ -351,7 +351,7 @@ jobs:
             # First check if container is running
             echo 'Checking container status...'
             if ! docker ps | grep -q balanced-app-new; then
-              echo 'ERROR: Container is not running'
+              echo '[ERROR] Container is not running'
               echo 'Container logs:'
               docker logs balanced-app-new 2>/dev/null || echo 'No logs available'
               echo 'Deployment failed - container failed to start properly'
@@ -375,8 +375,8 @@ jobs:
 
             # More reliable health check - first try direct curl
             while [ \$CURRENT_TIME -lt \$END_TIME ]; do
-              if curl -s http://localhost:3000/ -o /dev/null; then
-                echo 'Application is responding on port 3000'
+              if curl -s http://localhost:\$NEW_PORT/ -o /dev/null; then
+                echo 'Application is responding on port '\$NEW_PORT
                 APP_READY=true
                 break
               fi
@@ -416,7 +416,7 @@ jobs:
 
                 # Stop with timeout and remove
                 docker stop --time=10 \$CURRENT_CONTAINER || true
-                docker rm \$CURRENT_CONTAINER || echo 'Warning: Could not remove old container'
+                docker rm \$CURRENT_CONTAINER || echo '[WARNING] Could not remove old container'
                 echo 'Old container removed'
               else
                 echo 'No previous container found'
@@ -433,19 +433,79 @@ jobs:
                 # Don't fail the build for rename issue
               fi
             else
-              # Health check failed - collect debug info and clean up
-              echo '[ERROR] HEALTH CHECK FAILED: Application did not respond within timeout'
-              echo 'Container status:'
-              docker ps -a --filter name=balanced-app-new
+              # Health check initially failed - try additional attempts
+              echo '[WARNING] Initial health check failed - attempting extended checks'
+              
+              # Try additional health checks with longer timeouts
+              EXTENDED_ATTEMPTS=3
+              for attempt in \$(seq 1 \$EXTENDED_ATTEMPTS); do
+                echo "Extended health check attempt \$attempt of \$EXTENDED_ATTEMPTS"
+                
+                # Check if Prisma/database connection is the issue
+                echo "Checking database connectivity..."
+                if docker exec balanced-app-new /bin/sh -c "cd /app && npx prisma migrate status" &>/dev/null; then
+                  echo "Database appears to be connected, waiting longer for app startup"
+                else
+                  echo "Database connection issues detected"
+                fi
+                
+                # Wait longer between extended checks
+                sleep 30
+                
+                # Try health check again
+                if curl -s http://localhost:\$NEW_PORT/ -o /dev/null; then
+                  echo '[RECOVERED] Application is now responding on port '\$NEW_PORT
+                  APP_READY=true
+                  break
+                fi
+              done
+              
+              # Final decision based on extended checks
+              if [ "\${APP_READY:-false}" = "true" ]; then
+                echo '[SUCCESS] Extended health check passed!'
+                # Now continue with container rename logic as in the success path
+                # Clean up old container if it exists
+                if [ -f /tmp/current_container_id ]; then
+                  CURRENT_CONTAINER=\$(cat /tmp/current_container_id)
+                  echo 'Stopping previous container: '\$CURRENT_CONTAINER
 
-              echo 'Complete container logs:'
-              docker logs balanced-app-new
+                  # Stop with timeout and remove
+                  docker stop --time=10 \$CURRENT_CONTAINER || true
+                  docker rm \$CURRENT_CONTAINER || echo '[WARNING] Could not remove old container'
+                  echo 'Old container removed'
+                else
+                  echo 'No previous container found'
+                fi
 
-              echo 'Cleaning up failed deployment...'
-              docker stop balanced-app-new || true
-              docker rm balanced-app-new || true
-              echo '[ERROR] DEPLOYMENT FAILED - cleanup complete'
-              exit 1
+                # Rename new container to standard name
+                echo 'Setting new container as primary'
+                docker rename balanced-app-new balanced-app
+                if [ \$? -eq 0 ]; then
+                  echo '[SUCCESS] DEPLOYMENT SUCCESSFUL'
+                  echo 'Application is now running'
+                else
+                  echo '[WARNING] Could not rename container - verify manually'
+                  # Don't fail the build for rename issue
+                fi
+              else
+                # All attempts failed - collect debug info and clean up
+                echo '[ERROR] ALL HEALTH CHECKS FAILED: Application did not respond within extended timeout'
+                echo 'Container status:'
+                docker ps -a --filter name=balanced-app-new
+
+                echo 'Complete container logs:'
+                docker logs balanced-app-new
+                
+                # Check for common issues
+                echo 'Checking for common startup issues:'
+                docker logs balanced-app-new 2>&1 | grep -i "error\|exception\|failed" || echo "No common error patterns found"
+
+                echo 'Cleaning up failed deployment...'
+                docker stop balanced-app-new || true
+                docker rm balanced-app-new || true
+                echo '[ERROR] DEPLOYMENT FAILED - cleanup complete'
+                exit 1
+              fi
             fi
           "
 
