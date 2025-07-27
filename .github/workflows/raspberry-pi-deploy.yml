@@ -339,43 +339,102 @@ jobs:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
           PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
         run: |
-          # Verify the new container is healthy before switching
+          echo "Running health check and finalizing deployment"
+
+          # Verify the new container is healthy before completing the deployment
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
-            # Wait for the new container to be healthy
-            echo 'Waiting for new container to be ready...'
-            timeout=30
-            # Wait for the new container to be healthy
-            echo 'Waiting for new container to be ready...'
-            timeout=30
-            while [ \$timeout -gt 0 ]; do
-              if curl -s http://localhost:3000 > /dev/null; then
-                echo 'New container is ready'
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "set -e
+            # First check if container is running
+            echo 'Checking container status...'
+            if ! docker ps | grep -q balanced-app-new; then
+              echo 'ERROR: Container is not running'
+              echo 'Container logs:'
+              docker logs balanced-app-new 2>/dev/null || echo 'No logs available'
+              echo 'Deployment failed - container failed to start properly'
+              docker rm -f balanced-app-new 2>/dev/null || true
+              exit 1
+            fi
+            
+            echo 'Container is running, checking health...'
+            
+            # Get port mapping info
+            NEW_PORT=\$(cat /tmp/new_port 2>/dev/null || echo '3000')
+            echo 'Container mapped to internal port: '\$NEW_PORT
+            
+            # Wait for the application to be ready
+            echo 'Waiting for application to become available (60s timeout)...'
+            TIMEOUT_SEC=60
+            WAIT_INTERVAL=5
+            START_TIME=\$(date +%s)
+            END_TIME=\$((START_TIME + TIMEOUT_SEC))
+            CURRENT_TIME=\$START_TIME
+            
+            # More reliable health check - first try direct curl
+            while [ \$CURRENT_TIME -lt \$END_TIME ]; do
+              if curl -s http://localhost:3000/ -o /dev/null; then
+                echo 'Application is responding on port 3000'
+                APP_READY=true
                 break
               fi
-              echo 'Waiting for service to start...'
-              sleep 2
-              timeout=\$((timeout-2))
+              
+              # Show container status at intervals
+              ELAPSED=\$((CURRENT_TIME - START_TIME))
+              REMAINING=\$((TIMEOUT_SEC - ELAPSED))
+              
+              if [ \$((ELAPSED % 15)) -eq 0 ]; then
+                echo 'Container status:'
+                docker ps --filter name=balanced-app-new --format "{{.Status}}"
+                
+                echo 'Recent container logs:'
+                docker logs --tail=10 balanced-app-new 2>/dev/null || echo 'No logs available'
+              fi
+              
+              echo "Waiting for service (\${REMAINING}s remaining)..."
+              sleep \$WAIT_INTERVAL
+              CURRENT_TIME=\$(date +%s)
             done
-
-            # Switch to new container if healthy
-            if [ \$timeout -gt 0 ]; then
+            
+            # Finalize deployment if health check passed
+            if [ "\${APP_READY:-false}" = "true" ]; then
+              echo '✅ Health check passed!'
+              
+              # Clean up old container if it exists
               if [ -f /tmp/current_container_id ]; then
                 CURRENT_CONTAINER=\$(cat /tmp/current_container_id)
-                docker stop \$CURRENT_CONTAINER
-                docker rm \$CURRENT_CONTAINER
+                echo 'Stopping previous container: '\$CURRENT_CONTAINER
+                
+                # Stop with timeout and remove
+                docker stop --time=10 \$CURRENT_CONTAINER || true
+                docker rm \$CURRENT_CONTAINER || echo 'Warning: Could not remove old container'
+                echo 'Old container removed'
+              else
+                echo 'No previous container found'
               fi
-
-              # Rename the new container to the standard name
+              
+              # Rename new container to standard name
+              echo 'Setting new container as primary'
               docker rename balanced-app-new balanced-app
-              echo 'Deployment successful'
+              if [ \$? -eq 0 ]; then
+                echo '🟢 DEPLOYMENT SUCCESSFUL 🟢'
+                echo 'Application is now running'
+              else
+                echo '⚠️ Warning: Could not rename container - verify manually'
+                # Don't fail the build for rename issue
+              fi
             else
-              # Rollback if new container fails health check
-              echo 'New container failed to start properly'
-              docker stop balanced-app-new
-              docker rm balanced-app-new
-              echo 'Deployment failed - rolling back'
+              # Health check failed - collect debug info and clean up
+              echo '❌ HEALTH CHECK FAILED: Application did not respond within timeout'
+              echo 'Container status:'
+              docker ps -a --filter name=balanced-app-new
+              
+              echo 'Complete container logs:'
+              docker logs balanced-app-new
+              
+              echo 'Cleaning up failed deployment...'
+              docker stop balanced-app-new || true
+              docker rm balanced-app-new || true
+              echo '❌ DEPLOYMENT FAILED - cleanup complete'
               exit 1
             fi
           "
@@ -386,20 +445,39 @@ jobs:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
           PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
         run: |
-          # Clean up temporary files and old images
+          echo "Performing post-deployment cleanup"
+
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
-            # Remove the temporary image file
-            rm /tmp/balanced-image.tar
+            echo 'Running post-deployment cleanup...'
+            
+            # Remove temporary image file if it exists
+            rm -f /tmp/balanced-image.tar
 
-            # Clean up temporary files
-            rm -f /tmp/deploy_timestamp
-            rm -f /tmp/new_port
-            rm -f /tmp/old_port
-            rm -f /tmp/container_volumes
-            rm -f /tmp/current_container_id
+            # Clean up all temporary files
+            echo 'Removing temporary files'
+            rm -f /tmp/deploy_timestamp /tmp/new_port /tmp/old_port /tmp/container_volumes /tmp/current_container_id
 
             # Clean up old images (keep only the 3 most recent)
-            docker image ls balanced --format '{{.Tag}}' | sort -r | tail -n +4 | xargs -I {} docker rmi balanced:{} || true
+            echo 'Cleaning up old Docker images (keeping 3 most recent)'
+            REPO='${{ env.DOCKERHUB_REPO }}'
+            
+            # List tags and only remove if there are more than 3
+            TAGS=\$(docker images \$REPO --format '{{.Tag}}' | grep -v 'latest' | grep -v '<none>' | sort -r)
+            COUNT=\$(echo "\$TAGS" | wc -l)
+            
+            if [ \$COUNT -gt 3 ]; then
+              echo "Found \$COUNT tags, removing old ones"
+              echo "\$TAGS" | tail -n +4 | xargs -r -I {} docker rmi \$REPO:{} 2>/dev/null || true
+              echo 'Image cleanup completed'
+            else
+              echo "Only \$COUNT tagged images found, no cleanup needed"
+            fi
+            
+            # General cleanup of dangling images
+            echo 'Removing any dangling images'
+            docker image prune -f
+            
+            echo 'Cleanup completed successfully'
           "
