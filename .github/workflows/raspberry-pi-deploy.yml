@@ -375,27 +375,61 @@ jobs:
 
             # Health check using dedicated endpoint with retry logic
             echo 'Checking application health (2 minute timeout)...'
+            echo "Expected health endpoint: http://localhost:\$NEW_PORT/api/health"
+            
+            # Show initial container state
+            echo 'Initial container state:'
+            docker ps --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.CreatedAt}}'
+            
+            # Check if port is actually listening
+            echo "Checking if port \$NEW_PORT is listening..."
+            netstat -tlnp | grep :\$NEW_PORT || echo "Port \$NEW_PORT is not listening"
+            
             HEALTH_CHECK_PASSED=false
 
             for attempt in {1..12}; do
-              echo "Health check attempt \$attempt/12"
-
+              echo "\n=== Health check attempt \$attempt/12 ==="
+              
               # Use curl to get health status and check for 'ok' status
-              HEALTH_RESPONSE=\$(curl -s http://localhost:\$NEW_PORT/api/health 2>/dev/null)
-              if [ \$? -eq 0 ] && echo "\$HEALTH_RESPONSE" | grep -q '"status":"ok"'; then
-                echo "Health check response: \$HEALTH_RESPONSE"
+              echo "Attempting to connect to: http://localhost:\$NEW_PORT/api/health"
+              HEALTH_RESPONSE=\$(curl -s -w "HTTP_CODE:%{http_code}" --connect-timeout 5 --max-time 10 http://localhost:\$NEW_PORT/api/health 2>&1)
+              CURL_EXIT_CODE=\$?
+              
+              echo "Curl exit code: \$CURL_EXIT_CODE"
+              echo "Curl response: \$HEALTH_RESPONSE"
+              
+              # Decode curl exit codes for better debugging
+              case \$CURL_EXIT_CODE in
+                0) echo "Curl status: Success" ;;
+                7) echo "Curl status: Failed to connect to host" ;;
+                28) echo "Curl status: Operation timeout" ;;
+                52) echo "Curl status: Empty reply from server" ;;
+                56) echo "Curl status: Failure in receiving network data" ;;
+                *) echo "Curl status: Unknown error (code \$CURL_EXIT_CODE)" ;;
+              esac
+              
+              if [ \$CURL_EXIT_CODE -eq 0 ] && echo "\$HEALTH_RESPONSE" | grep -q '"status":"ok"'; then
                 echo '[SUCCESS] Health check passed!'
                 HEALTH_CHECK_PASSED=true
                 break
               else
-                echo 'Health check failed, waiting 10 seconds...'
+                echo "Health check failed (curl exit code: \$CURL_EXIT_CODE), waiting 10 seconds..."
 
-                # Show container status every few attempts
+                # Show detailed diagnostics every few attempts
                 if [ \$((attempt % 3)) -eq 0 ]; then
+                  echo '\n--- Diagnostic Information ---'
                   echo 'Container status:'
-                  docker ps --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
-                  echo 'Recent container logs:'
-                  docker logs --tail=5 balanced-app-new 2>/dev/null || echo 'No logs available'
+                  docker ps --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.RunningFor}}'
+                  
+                  echo 'Port status:'
+                  netstat -tlnp | grep :\$NEW_PORT || echo "Port \$NEW_PORT is not listening"
+                  
+                  echo 'Recent container logs (last 10 lines):'
+                  docker logs --tail=10 balanced-app-new 2>/dev/null || echo 'No logs available'
+                  
+                  echo 'Container resource usage:'
+                  docker stats --no-stream --format 'table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}' balanced-app-new 2>/dev/null || echo 'Stats unavailable'
+                  echo '--- End Diagnostics ---\n'
                 fi
 
                 sleep 10
@@ -405,13 +439,32 @@ jobs:
             # Final result
             if [ "\$HEALTH_CHECK_PASSED" = "true" ]; then
               echo '[SUCCESS] Application is healthy and ready!'
+              echo 'Final container status:'
+              docker ps --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
               exit 0
             else
-              echo '[ERROR] Health check failed after 2 minutes'
+              echo '\n[ERROR] Health check failed after 2 minutes'
+              echo '\n=== FAILURE DIAGNOSTICS ==='
+              
               echo 'Final container status:'
-              docker ps -a --filter name=balanced-app-new
-              echo 'Complete container logs:'
-              docker logs balanced-app-new
+              docker ps -a --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.RunningFor}}\t{{.Size}}'
+              
+              echo '\nContainer inspect (relevant fields):'
+              docker inspect balanced-app-new --format='{{.State.Status}} | {{.State.ExitCode}} | {{.State.Error}} | {{.State.StartedAt}}' 2>/dev/null || echo 'Inspect failed'
+              
+              echo '\nPort binding details:'
+              docker port balanced-app-new 2>/dev/null || echo 'No port bindings found'
+              
+              echo '\nSystem port status:'
+              netstat -tlnp | grep :\$NEW_PORT || echo "Port \$NEW_PORT is not listening"
+              
+              echo '\nComplete container logs:'
+              docker logs balanced-app-new 2>&1 || echo 'No logs available'
+              
+              echo '\nContainer environment variables:'
+              docker exec balanced-app-new env 2>/dev/null | grep -E '(NODE_ENV|PORT|DATABASE_URL)' || echo 'Could not retrieve env vars'
+              
+              echo '=== END DIAGNOSTICS ===\n'
 
               echo 'Cleaning up failed deployment...'
               docker stop balanced-app-new || true
