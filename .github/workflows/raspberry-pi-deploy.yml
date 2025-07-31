@@ -66,7 +66,6 @@ jobs:
 
   test:
     name: Run Tests on the source code
-    needs: [lint, typecheck]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -86,7 +85,7 @@ jobs:
 
   build:
     name: Build And Push Docker Image
-    needs: test
+    needs: [test, lint, typecheck]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -413,10 +412,12 @@ jobs:
 
               # Use curl to get health status and check for 'ok' status
               echo "Attempting to connect to: http://localhost:\$NEW_PORT/api/health"
-              HEALTH_RESPONSE=\$(curl -s -w "HTTP_CODE:%{http_code}" --connect-timeout 5 --max-time 10 http://localhost:\$NEW_PORT/api/health 2>&1)
+              HEALTH_RESPONSE=\$(curl -s --connect-timeout 5 --max-time 10 http://localhost:\$NEW_PORT/api/health 2>&1)
               CURL_EXIT_CODE=\$?
+              HTTP_CODE=\$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 http://localhost:\$NEW_PORT/api/health 2>/dev/null || echo '000')
 
               echo "Curl exit code: \$CURL_EXIT_CODE"
+              echo "HTTP status code: \$HTTP_CODE"
               echo "Curl response: \$HEALTH_RESPONSE"
 
               # Decode curl exit codes for better debugging
@@ -437,7 +438,8 @@ jobs:
                 echo "Health check failed (curl exit code: \$CURL_EXIT_CODE), waiting 10 seconds..."
 
                 # Show detailed diagnostics every few attempts
-                if [ \$((attempt % 3)) -eq 0 ]; then
+                # Show diagnostics every 3rd attempt (3, 6, 9, 12)
+                if [ \$attempt -eq 3 ] || [ \$attempt -eq 6 ] || [ \$attempt -eq 9 ] || [ \$attempt -eq 12 ]; then
                   echo ""
                   echo '--- Diagnostic Information ---'
                   echo 'Container status:'
@@ -492,7 +494,7 @@ jobs:
 
               echo ""
               echo 'Container environment variables:'
-              docker exec balanced-app-new env 2>/dev/null | grep -E '(NODE_ENV|PORT|DATABASE_URL)' || echo 'Could not retrieve env vars'
+              docker exec balanced-app-new env 2>/dev/null | grep -E 'NODE_ENV\|PORT\|DATABASE_URL' || echo 'Could not retrieve env vars'
 
               echo '=== END DIAGNOSTICS ==='
               echo ""
