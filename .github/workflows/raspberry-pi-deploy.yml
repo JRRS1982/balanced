@@ -337,202 +337,132 @@ jobs:
           "
           echo "New container deployment completed"
 
-      - name: Health check and finalize deployment
+      - name: Health check
+        id: health_check
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
           PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
         run: |
-          echo "Running health check and finalizing deployment"
+          echo "Running container health check"
 
-          # Verify the new container is healthy before completing the deployment
+          # Verify the new container is healthy using the dedicated health endpoint
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "set -e
+
             # First check if container is running
-            echo 'Checking container status...'
-            echo 'All running containers:'
-            docker ps --all
-
-            # Check if container exists but failed to start
-            if docker ps -a | grep -q balanced-app-new; then
-              echo 'Container exists but may have failed to start or exited quickly'
+            echo 'Checking if container exists and is running...'
+            if ! docker ps | grep -q balanced-app-new; then
+              echo '[ERROR] Container balanced-app-new is not running'
               echo 'Container status:'
-              docker inspect balanced-app-new --format "{{.State.Status}}" || echo "Could not get status"
-              echo 'Container exit code:'
-              docker inspect balanced-app-new --format "{{.State.ExitCode}}" || echo "Could not get exit code"
-              echo 'Container creation time:'
-              docker inspect balanced-app-new --format "{{.Created}}" || echo "Could not get creation time"
+              docker ps -a | grep balanced-app-new || echo 'Container does not exist'
 
-              echo 'Container startup logs:'
-              docker logs balanced-app-new 2>&1 || echo 'No logs available'
+              if docker ps -a | grep -q balanced-app-new; then
+                echo 'Container logs:'
+                docker logs balanced-app-new
+              fi
 
-              # Check for common container startup issues
-              echo 'Checking for missing environment variables:'
-              docker inspect balanced-app-new --format "{{.Config.Env}}" || echo "Could not inspect env vars"
-
-              # Check for port conflicts
-              echo 'Checking for port conflicts:'
-              netstat -tulpn | grep 3000 || echo "No conflicts on port 3000"
-
-              echo 'Deployment failed - container failed to start properly'
+              echo 'Cleaning up failed container...'
               docker rm -f balanced-app-new 2>/dev/null || true
-              exit 1
-            else
-              echo 'Container balanced-app-new does not exist at all - deployment may have failed earlier'
               exit 1
             fi
 
-            echo 'Container is running, checking health...'
+            echo '[SUCCESS] Container is running, performing health check...'
 
             # Get port mapping info
             NEW_PORT=\$(cat /tmp/new_port 2>/dev/null || echo '3000')
             echo 'Container mapped to internal port: '\$NEW_PORT
 
-            # Wait for the application to be ready
-            echo 'Waiting for application to become available (60s timeout)...'
-            TIMEOUT_SEC=60
-            WAIT_INTERVAL=5
-            START_TIME=\$(date +%s)
-            END_TIME=\$((START_TIME + TIMEOUT_SEC))
-            CURRENT_TIME=\$START_TIME
+            # Health check using dedicated endpoint with retry logic
+            echo 'Checking application health (2 minute timeout)...'
+            HEALTH_CHECK_PASSED=false
 
-            # More reliable health check - first try direct curl
-            while [ \$CURRENT_TIME -lt \$END_TIME ]; do
-              if curl -s http://localhost:\$NEW_PORT/ -o /dev/null; then
-                echo 'Application is responding on port '\$NEW_PORT
-                APP_READY=true
+            for attempt in {1..12}; do
+              echo "Health check attempt \$attempt/12"
+
+              # Use curl to get health status and check for 'healthy' status
+              HEALTH_RESPONSE=\$(curl -s http://localhost:\$NEW_PORT/api/health 2>/dev/null)
+              if [ \$? -eq 0 ] && echo "\$HEALTH_RESPONSE" | grep -q '"status":"healthy"'; then
+                echo "Health check response: \$HEALTH_RESPONSE"
+                echo '[SUCCESS] Health check passed!'
+                HEALTH_CHECK_PASSED=true
                 break
+              else
+                echo 'Health check failed, waiting 10 seconds...'
+
+                # Show container status every few attempts
+                if [ \$((attempt % 3)) -eq 0 ]; then
+                  echo 'Container status:'
+                  docker ps --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+                  echo 'Recent container logs:'
+                  docker logs --tail=5 balanced-app-new 2>/dev/null || echo 'No logs available'
+                fi
+
+                sleep 10
               fi
-
-              # Show container status at intervals
-              ELAPSED=\$((CURRENT_TIME - START_TIME))
-              REMAINING=\$((TIMEOUT_SEC - ELAPSED))
-
-              if [ \$((ELAPSED % 15)) -eq 0 ]; then
-                echo 'Container status:'
-                # Using heredoc to protect Docker template syntax
-                cat << 'EOT' > /tmp/container_status.sh
-                #!/bin/bash
-                docker ps --filter name=balanced-app-new --format '{{.Status}}'
-                EOT
-                chmod +x /tmp/container_status.sh
-                /tmp/container_status.sh
-                rm /tmp/container_status.sh
-
-                echo 'Recent container logs:'
-                docker logs --tail=10 balanced-app-new 2>/dev/null || echo 'No logs available'
-              fi
-
-              echo "Waiting for service (\${REMAINING}s remaining)..."
-              sleep \$WAIT_INTERVAL
-              CURRENT_TIME=\$(date +%s)
             done
 
-            # Finalize deployment if health check passed
-            if [ "\${APP_READY:-false}" = "true" ]; then
-              echo '[SUCCESS] Health check passed!'
-
-              # Clean up old container if it exists
-              if [ -f /tmp/current_container_id ]; then
-                CURRENT_CONTAINER=\$(cat /tmp/current_container_id)
-                echo 'Stopping previous container: '\$CURRENT_CONTAINER
-
-                # Stop with timeout and remove
-                docker stop --time=10 \$CURRENT_CONTAINER || true
-                docker rm \$CURRENT_CONTAINER || echo '[WARNING] Could not remove old container'
-                echo 'Old container removed'
-              else
-                echo 'No previous container found'
-              fi
-
-              # Rename new container to standard name
-              echo 'Setting new container as primary'
-              docker rename balanced-app-new balanced-app
-              if [ \$? -eq 0 ]; then
-                echo '[SUCCESS] DEPLOYMENT SUCCESSFUL'
-                echo 'Application is now running'
-              else
-                echo '[WARNING] Could not rename container - verify manually'
-                # Don't fail the build for rename issue
-              fi
+            # Final result
+            if [ "\$HEALTH_CHECK_PASSED" = "true" ]; then
+              echo '[SUCCESS] Application is healthy and ready!'
+              exit 0
             else
-              # Health check initially failed - try additional attempts
-              echo '[WARNING] Initial health check failed - attempting extended checks'
+              echo '[ERROR] Health check failed after 2 minutes'
+              echo 'Final container status:'
+              docker ps -a --filter name=balanced-app-new
+              echo 'Complete container logs:'
+              docker logs balanced-app-new
 
-              # Try additional health checks with longer timeouts
-              EXTENDED_ATTEMPTS=3
-              for attempt in \$(seq 1 \$EXTENDED_ATTEMPTS); do
-                echo "Extended health check attempt \$attempt of \$EXTENDED_ATTEMPTS"
-
-                # Check if Prisma/database connection is the issue
-                echo "Checking database connectivity..."
-                if docker exec balanced-app-new /bin/sh -c "cd /app && npx prisma migrate status" &>/dev/null; then
-                  echo "Database appears to be connected, waiting longer for app startup"
-                else
-                  echo "Database connection issues detected"
-                fi
-
-                # Wait longer between extended checks
-                sleep 30
-
-                # Try health check again
-                if curl -s http://localhost:\$NEW_PORT/ -o /dev/null; then
-                  echo '[RECOVERED] Application is now responding on port '\$NEW_PORT
-                  APP_READY=true
-                  break
-                fi
-              done
-
-              # Final decision based on extended checks
-              if [ "\${APP_READY:-false}" = "true" ]; then
-                echo '[SUCCESS] Extended health check passed!'
-                # Now continue with container rename logic as in the success path
-                # Clean up old container if it exists
-                if [ -f /tmp/current_container_id ]; then
-                  CURRENT_CONTAINER=\$(cat /tmp/current_container_id)
-                  echo 'Stopping previous container: '\$CURRENT_CONTAINER
-
-                  # Stop with timeout and remove
-                  docker stop --time=10 \$CURRENT_CONTAINER || true
-                  docker rm \$CURRENT_CONTAINER || echo '[WARNING] Could not remove old container'
-                  echo 'Old container removed'
-                else
-                  echo 'No previous container found'
-                fi
-
-                # Rename new container to standard name
-                echo 'Setting new container as primary'
-                docker rename balanced-app-new balanced-app
-                if [ \$? -eq 0 ]; then
-                  echo '[SUCCESS] DEPLOYMENT SUCCESSFUL'
-                  echo 'Application is now running'
-                else
-                  echo '[WARNING] Could not rename container - verify manually'
-                  # Don't fail the build for rename issue
-                fi
-              else
-                # All attempts failed - collect debug info and clean up
-                echo '[ERROR] ALL HEALTH CHECKS FAILED: Application did not respond within extended timeout'
-                echo 'Container status:'
-                docker ps -a --filter name=balanced-app-new
-
-                echo 'Complete container logs:'
-                docker logs balanced-app-new
-
-                # Check for common issues
-                echo 'Checking for common startup issues:'
-                docker logs balanced-app-new 2>&1 | grep -i "error\|exception\|failed" || echo "No common error patterns found"
-
-                echo 'Cleaning up failed deployment...'
-                docker stop balanced-app-new || true
-                docker rm balanced-app-new || true
-                echo '[ERROR] DEPLOYMENT FAILED - cleanup complete'
-                exit 1
-              fi
+              echo 'Cleaning up failed deployment...'
+              docker stop balanced-app-new || true
+              docker rm balanced-app-new || true
+              exit 1
             fi
           "
 
-      - name: Cleanup
+      - name: Finalize deployment
+        if: success() && steps.health_check.outcome == 'success'
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
+        run: |
+          echo "Finalizing successful deployment"
+
+          # Complete the deployment process
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "set -e
+
+            # Get port mapping info (for logging purposes)
+            NEW_PORT=\$(cat /tmp/new_port 2>/dev/null || echo '3000')
+            echo 'Container mapped to internal port: '\$NEW_PORT
+
+            # Clean up old container if it exists
+            if [ -f /tmp/current_container_id ]; then
+              CURRENT_CONTAINER=\$(cat /tmp/current_container_id)
+              echo 'Stopping previous container: '\$CURRENT_CONTAINER
+
+              # Stop with timeout and remove
+              docker stop --time=10 \$CURRENT_CONTAINER || true
+              docker rm \$CURRENT_CONTAINER || echo '[WARNING] Could not remove old container'
+              echo 'Old container removed'
+            else
+              echo 'No previous container found'
+            fi
+
+            # Rename new container to standard name
+            echo 'Setting new container as primary'
+            docker rename balanced-app-new balanced-app
+            if [ \$? -eq 0 ]; then
+              echo '[SUCCESS] DEPLOYMENT SUCCESSFUL'
+              echo 'Application is now running'
+            else
+              echo '[WARNING] Could not rename container - verify manually'
+              # Don't fail the build for rename issue
+            fi
+          "
+
+      - name: Clean-up
         if: always() # Run cleanup even if previous steps fail
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
@@ -570,14 +500,14 @@ jobs:
             if [ \$COUNT -gt 3 ]; then
               echo "Found \$COUNT tags, removing old ones"
               echo "\$TAGS" | tail -n +4 | xargs -r -I {} docker rmi \$REPO:{} 2>/dev/null || true
-              echo 'Image cleanup completed'
+              echo '[SUCCESS] Image clean-up completed'
             else
-              echo "Only \$COUNT tagged images found, no cleanup needed"
+              echo "Only \$COUNT tagged images found, no clean-up needed"
             fi
 
-            # General cleanup of dangling images
+            # General clean-up of dangling images
             echo 'Removing any dangling images'
             docker image prune -f
 
-            echo 'Cleanup completed successfully'
+            echo '[SUCCESS] Cleanup completed successfully'
           "
