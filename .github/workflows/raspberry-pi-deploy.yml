@@ -253,8 +253,9 @@ jobs:
             if [ ! -z \"\$CURRENT_CONTAINER\" ]; then
               echo 'Extracting volume configuration from current container'
               # Get volume mapping using a variable to protect template syntax
-              TEMPLATE='{{"{{"}range .Mounts}}{{"{{"}}{{"."}}}Source}:{{"{{"}}{{"."}}}Destination}} {{"{{"}}end}}'
-              docker inspect -f "\$TEMPLATE" "\$CURRENT_CONTAINER" > /tmp/container_volumes
+              # Get container volumes (simplified approach)
+              VOLUMES=\$(docker inspect \$CURRENT_CONTAINER --format='{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' 2>/dev/null || echo 'none')
+              echo "\$VOLUMES" > /tmp/container_volumes
               echo 'Volume configuration saved:'
               cat /tmp/container_volumes
 
@@ -406,7 +407,7 @@ jobs:
 
             HEALTH_CHECK_PASSED=false
 
-            for attempt in {1..12}; do
+            for attempt in \$(seq 1 12); do
               echo ""
               echo "=== Health check attempt \$attempt/12 ==="
 
