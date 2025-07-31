@@ -365,11 +365,15 @@ jobs:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
           PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
         run: |
-          echo "Running container health check"
+          echo "Starting container health check"
 
           # Verify the new container is healthy using the dedicated health endpoint
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=3 \
+              -o ConnectTimeout=10 \
+              -o TCPKeepAlive=yes \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
 
             echo 'SSH connection established, starting health check...'
