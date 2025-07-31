@@ -476,7 +476,7 @@ jobs:
 
               echo ""
               echo 'Container inspect (relevant fields):'
-              docker inspect balanced-app-new --format='{{.State.Status}} | {{.State.ExitCode}} | {{.State.Error}} | {{.State.StartedAt}}' 2>/dev/null || echo 'Inspect failed'
+              docker inspect balanced-app-new --format='Status: {{.State.Status}}, ExitCode: {{.State.ExitCode}}, Error: {{.State.Error}}, StartedAt: {{.State.StartedAt}}' 2>/dev/null || echo 'Inspect failed'
 
               echo ""
               echo 'Port binding details:'
