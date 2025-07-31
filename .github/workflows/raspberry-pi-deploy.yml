@@ -252,10 +252,12 @@ jobs:
             # Copy volume configuration from existing container if available
             if [ ! -z \"\$CURRENT_CONTAINER\" ]; then
               echo 'Extracting volume configuration from current container'
-              # Get volume mapping using a variable to protect template syntax
-              # Get container volumes (simplified approach)
-              VOLUMES=\$(docker inspect \$CURRENT_CONTAINER --format='{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' 2>/dev/null || echo 'none')
-              echo "\$VOLUMES" > /tmp/container_volumes
+              # Get volume mapping using a simpler approach to avoid shell syntax issues
+              # Extract volume information without complex template syntax
+              docker inspect \$CURRENT_CONTAINER --format='{{json .Mounts}}' 2>/dev/null | grep -o '"Source":"[^"]*"' | cut -d'"' -f4 > /tmp/volume_sources 2>/dev/null || echo 'none' > /tmp/volume_sources
+              docker inspect \$CURRENT_CONTAINER --format='{{json .Mounts}}' 2>/dev/null | grep -o '"Destination":"[^"]*"' | cut -d'"' -f4 > /tmp/volume_destinations 2>/dev/null || echo 'none' > /tmp/volume_destinations
+              # Combine sources and destinations
+              paste -d':' /tmp/volume_sources /tmp/volume_destinations > /tmp/container_volumes 2>/dev/null || echo 'none' > /tmp/container_volumes
               echo 'Volume configuration saved:'
               cat /tmp/container_volumes
 
@@ -486,7 +488,10 @@ jobs:
 
               echo ""
               echo 'Container inspect (relevant fields):'
-              docker inspect balanced-app-new --format='Status: {{.State.Status}}, ExitCode: {{.State.ExitCode}}, Error: {{.State.Error}}, StartedAt: {{.State.StartedAt}}' 2>/dev/null || echo 'Inspect failed'
+              echo -n 'Status: '; docker inspect balanced-app-new --format='{{.State.Status}}' 2>/dev/null || echo 'unknown'
+              echo -n 'ExitCode: '; docker inspect balanced-app-new --format='{{.State.ExitCode}}' 2>/dev/null || echo 'unknown'
+              echo -n 'Error: '; docker inspect balanced-app-new --format='{{.State.Error}}' 2>/dev/null || echo 'none'
+              echo -n 'StartedAt: '; docker inspect balanced-app-new --format='{{.State.StartedAt}}' 2>/dev/null || echo 'unknown'
 
               echo ""
               echo 'Port binding details:'
