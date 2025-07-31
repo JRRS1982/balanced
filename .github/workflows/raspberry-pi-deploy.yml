@@ -265,6 +265,10 @@ jobs:
 
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=3 \
+              -o ConnectTimeout=10 \
+              -o TCPKeepAlive=yes \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
             # Load saved values from previous steps
             TIMESTAMP=\$(cat /tmp/deploy_timestamp)
@@ -481,9 +485,12 @@ jobs:
         run: |
           echo "Finalizing successful deployment"
 
-          # Complete the deployment process
+          # Deploy the new container with improved SSH stability
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=3 \
+              -o ConnectTimeout=10 \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "set -e
 
             # Get port mapping info (for logging purposes)
