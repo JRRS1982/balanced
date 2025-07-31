@@ -380,9 +380,9 @@ jobs:
             for attempt in {1..12}; do
               echo "Health check attempt \$attempt/12"
 
-              # Use curl to get health status and check for 'healthy' status
+              # Use curl to get health status and check for 'ok' status
               HEALTH_RESPONSE=\$(curl -s http://localhost:\$NEW_PORT/api/health 2>/dev/null)
-              if [ \$? -eq 0 ] && echo "\$HEALTH_RESPONSE" | grep -q '"status":"healthy"'; then
+              if [ \$? -eq 0 ] && echo "\$HEALTH_RESPONSE" | grep -q '"status":"ok"'; then
                 echo "Health check response: \$HEALTH_RESPONSE"
                 echo '[SUCCESS] Health check passed!'
                 HEALTH_CHECK_PASSED=true
