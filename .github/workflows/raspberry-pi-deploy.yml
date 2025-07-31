@@ -65,7 +65,7 @@ jobs:
         run: npm run typecheck
 
   test:
-    name: Run Tests on the source code
+    name: Run tests on the source code
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -368,7 +368,13 @@ jobs:
           # Verify the new container is healthy using the dedicated health endpoint
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "set -e
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+
+            echo 'SSH connection established, starting health check...'
+            echo 'Current working directory:' \$(pwd)
+            echo 'Current user:' \$(whoami)
+            echo 'Timestamp:' \$(date)
+            echo '--- Starting container health verification ---'
 
             # First check if container is running
             echo 'Checking if container exists and is running...'
@@ -379,11 +385,12 @@ jobs:
 
               if docker ps -a | grep -q balanced-app-new; then
                 echo 'Container logs:'
-                docker logs balanced-app-new
+                docker logs balanced-app-new 2>&1 || echo 'Could not retrieve logs'
               fi
 
               echo 'Cleaning up failed container...'
               docker rm -f balanced-app-new 2>/dev/null || true
+              echo 'Exiting due to container not running'
               exit 1
             fi
 
