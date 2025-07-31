@@ -345,7 +345,7 @@ jobs:
                 exit 1
               fi
             else
-              echo '[ERROR] Tagged image not found locally. This likely indicates a problem with the tagging step.'
+              echo 'ERROR: Tagged image not found locally. This likely indicates a problem with the tagging step.'
               echo 'Available images:'
               docker images
               exit 1
@@ -373,7 +373,7 @@ jobs:
             # First check if container is running
             echo 'Checking if container exists and is running...'
             if ! docker ps | grep -q balanced-app-new; then
-              echo '[ERROR] Container balanced-app-new is not running'
+              echo 'ERROR: Container balanced-app-new is not running'
               echo 'Container status:'
               docker ps -a | grep balanced-app-new || echo 'Container does not exist'
 
@@ -387,7 +387,7 @@ jobs:
               exit 1
             fi
 
-            echo '[SUCCESS] Container is running, performing health check...'
+            echo 'SUCCESS: Container is running, performing health check...'
 
             # Get port mapping info
             NEW_PORT=\$(cat /tmp/new_port 2>/dev/null || echo '3000')
@@ -408,7 +408,8 @@ jobs:
             HEALTH_CHECK_PASSED=false
 
             for attempt in {1..12}; do
-              echo "\n=== Health check attempt \$attempt/12 ==="
+              echo ""
+              echo "=== Health check attempt \$attempt/12 ==="
 
               # Use curl to get health status and check for 'ok' status
               echo "Attempting to connect to: http://localhost:\$NEW_PORT/api/health"
@@ -429,7 +430,7 @@ jobs:
               esac
 
               if [ \$CURL_EXIT_CODE -eq 0 ] && echo "\$HEALTH_RESPONSE" | grep -q '"status":"ok"'; then
-                echo '[SUCCESS] Health check passed!'
+                echo 'SUCCESS: Health check passed!'
                 HEALTH_CHECK_PASSED=true
                 break
               else
@@ -437,7 +438,8 @@ jobs:
 
                 # Show detailed diagnostics every few attempts
                 if [ \$((attempt % 3)) -eq 0 ]; then
-                  echo '\n--- Diagnostic Information ---'
+                  echo ""
+                  echo '--- Diagnostic Information ---'
                   echo 'Container status:'
                   docker ps --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.RunningFor}}'
 
@@ -449,7 +451,8 @@ jobs:
 
                   echo 'Container resource usage:'
                   docker stats --no-stream --format 'table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}' balanced-app-new 2>/dev/null || echo 'Stats unavailable'
-                  echo '--- End Diagnostics ---\n'
+                  echo '--- End Diagnostics ---'
+                  echo ""
                 fi
 
                 sleep 10
@@ -458,33 +461,41 @@ jobs:
 
             # Final result
             if [ "\$HEALTH_CHECK_PASSED" = "true" ]; then
-              echo '[SUCCESS] Application is healthy and ready!'
+              echo 'SUCCESS: Application is healthy and ready!'
               echo 'Final container status:'
               docker ps --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
               exit 0
             else
-              echo '\n[ERROR] Health check failed after 2 minutes'
-              echo '\n=== FAILURE DIAGNOSTICS ==='
+              echo ""
+              echo 'ERROR: Health check failed after 2 minutes'
+              echo ""
+              echo '=== FAILURE DIAGNOSTICS ==='
 
               echo 'Final container status:'
               docker ps -a --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.RunningFor}}\t{{.Size}}'
 
-              echo '\nContainer inspect (relevant fields):'
+              echo ""
+              echo 'Container inspect (relevant fields):'
               docker inspect balanced-app-new --format='{{.State.Status}} | {{.State.ExitCode}} | {{.State.Error}} | {{.State.StartedAt}}' 2>/dev/null || echo 'Inspect failed'
 
-              echo '\nPort binding details:'
+              echo ""
+              echo 'Port binding details:'
               docker port balanced-app-new 2>/dev/null || echo 'No port bindings found'
 
-              echo '\nSystem port status:'
+              echo ""
+              echo 'System port status:'
               netstat -tlnp | grep :\$NEW_PORT || echo "Port \$NEW_PORT is not listening"
 
-              echo '\nComplete container logs:'
+              echo ""
+              echo 'Complete container logs:'
               docker logs balanced-app-new 2>&1 || echo 'No logs available'
 
-              echo '\nContainer environment variables:'
+              echo ""
+              echo 'Container environment variables:'
               docker exec balanced-app-new env 2>/dev/null | grep -E '(NODE_ENV|PORT|DATABASE_URL)' || echo 'Could not retrieve env vars'
 
-              echo '=== END DIAGNOSTICS ===\n'
+              echo '=== END DIAGNOSTICS ==='
+              echo ""
 
               echo 'Cleaning up failed deployment...'
               docker stop balanced-app-new || true
@@ -520,7 +531,7 @@ jobs:
 
               # Stop with timeout and remove
               docker stop --time=10 \$CURRENT_CONTAINER || true
-              docker rm \$CURRENT_CONTAINER || echo '[WARNING] Could not remove old container'
+              docker rm \$CURRENT_CONTAINER || echo 'WARNING: Could not remove old container'
               echo 'Old container removed'
             else
               echo 'No previous container found'
@@ -530,10 +541,10 @@ jobs:
             echo 'Setting new container as primary'
             docker rename balanced-app-new balanced-app
             if [ \$? -eq 0 ]; then
-              echo '[SUCCESS] DEPLOYMENT SUCCESSFUL'
+              echo 'SUCCESS: DEPLOYMENT SUCCESSFUL'
               echo 'Application is now running'
             else
-              echo '[WARNING] Could not rename container - verify manually'
+              echo 'WARNING: Could not rename container - verify manually'
               # Don't fail the build for rename issue
             fi
           "
@@ -576,7 +587,7 @@ jobs:
             if [ \$COUNT -gt 3 ]; then
               echo "Found \$COUNT tags, removing old ones"
               echo "\$TAGS" | tail -n +4 | xargs -r -I {} docker rmi \$REPO:{} 2>/dev/null || true
-              echo '[SUCCESS] Image clean-up completed'
+              echo 'SUCCESS: Image clean-up completed'
             else
               echo "Only \$COUNT tagged images found, no clean-up needed"
             fi
@@ -585,5 +596,5 @@ jobs:
             echo 'Removing any dangling images'
             docker image prune -f
 
-            echo '[SUCCESS] Cleanup completed successfully'
+            echo 'SUCCESS: Cleanup completed successfully'
           "
