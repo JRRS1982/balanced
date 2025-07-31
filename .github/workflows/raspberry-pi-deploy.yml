@@ -254,8 +254,9 @@ jobs:
               echo 'Extracting volume configuration from current container'
               # Get volume mapping using a simpler approach to avoid shell syntax issues
               # Extract volume information without complex template syntax
-              docker inspect \$CURRENT_CONTAINER --format='{{json .Mounts}}' 2>/dev/null | grep -o '"Source":"[^"]*"' | cut -d'"' -f4 > /tmp/volume_sources 2>/dev/null || echo 'none' > /tmp/volume_sources
-              docker inspect \$CURRENT_CONTAINER --format='{{json .Mounts}}' 2>/dev/null | grep -o '"Destination":"[^"]*"' | cut -d'"' -f4 > /tmp/volume_destinations 2>/dev/null || echo 'none' > /tmp/volume_destinations
+              # Use simple docker inspect without format templates
+              docker inspect \$CURRENT_CONTAINER 2>/dev/null | grep -A 10 '"Mounts"' | grep '"Source"' | cut -d'"' -f4 > /tmp/volume_sources 2>/dev/null || echo 'none' > /tmp/volume_sources
+              docker inspect \$CURRENT_CONTAINER 2>/dev/null | grep -A 10 '"Mounts"' | grep '"Destination"' | cut -d'"' -f4 > /tmp/volume_destinations 2>/dev/null || echo 'none' > /tmp/volume_destinations
               # Combine sources and destinations
               paste -d':' /tmp/volume_sources /tmp/volume_destinations > /tmp/container_volumes 2>/dev/null || echo 'none' > /tmp/container_volumes
               echo 'Volume configuration saved:'
@@ -412,7 +413,7 @@ jobs:
 
             # Show initial container state
             echo 'Initial container state:'
-            docker ps --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.CreatedAt}}'
+            docker ps --filter name=balanced-app-new
 
             # Check if port is actually listening
             echo "Checking if port \$NEW_PORT is listening..."
@@ -441,14 +442,19 @@ jobs:
               echo "Curl response: \$HEALTH_RESPONSE"
 
               # Decode curl exit codes for better debugging
-              case \$CURL_EXIT_CODE in
-                0) echo "Curl status: Success" ;;
-                7) echo "Curl status: Failed to connect to host" ;;
-                28) echo "Curl status: Operation timeout" ;;
-                52) echo "Curl status: Empty reply from server" ;;
-                56) echo "Curl status: Failure in receiving network data" ;;
-                *) echo "Curl status: Unknown error (code \$CURL_EXIT_CODE)" ;;
-              esac
+              if [ \$CURL_EXIT_CODE -eq 0 ]; then
+                echo "Curl status: Success"
+              elif [ \$CURL_EXIT_CODE -eq 7 ]; then
+                echo "Curl status: Failed to connect to host"
+              elif [ \$CURL_EXIT_CODE -eq 28 ]; then
+                echo "Curl status: Operation timeout"
+              elif [ \$CURL_EXIT_CODE -eq 52 ]; then
+                echo "Curl status: Empty reply from server"
+              elif [ \$CURL_EXIT_CODE -eq 56 ]; then
+                echo "Curl status: Failure in receiving network data"
+              else
+                echo "Curl status: Unknown error (code \$CURL_EXIT_CODE)"
+              fi
 
               if [ \$CURL_EXIT_CODE -eq 0 ] && echo "\$HEALTH_RESPONSE" | grep -q '"status":"ok"'; then
                 echo 'SUCCESS: Health check passed!'
@@ -459,11 +465,16 @@ jobs:
 
                 # Show detailed diagnostics every few attempts
                 # Show diagnostics every 3rd attempt (3, 6, 9, 12)
-                if [ \$attempt -eq 3 ] || [ \$attempt -eq 6 ] || [ \$attempt -eq 9 ] || [ \$attempt -eq 12 ]; then
+                SHOW_DIAGNOSTICS=false
+                if [ \$attempt -eq 3 ]; then SHOW_DIAGNOSTICS=true; fi
+                if [ \$attempt -eq 6 ]; then SHOW_DIAGNOSTICS=true; fi
+                if [ \$attempt -eq 9 ]; then SHOW_DIAGNOSTICS=true; fi
+                if [ \$attempt -eq 12 ]; then SHOW_DIAGNOSTICS=true; fi
+                if [ "\$SHOW_DIAGNOSTICS" = "true" ]; then
                   echo ""
                   echo '--- Diagnostic Information ---'
                   echo 'Container status:'
-                  docker ps --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.RunningFor}}'
+                  docker ps --filter name=balanced-app-new
 
                   echo 'Port status:'
                   netstat -tlnp | grep :\$NEW_PORT || echo "Port \$NEW_PORT is not listening"
@@ -472,7 +483,7 @@ jobs:
                   docker logs --tail=10 balanced-app-new 2>/dev/null || echo 'No logs available'
 
                   echo 'Container resource usage:'
-                  docker stats --no-stream --format 'table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}' balanced-app-new 2>/dev/null || echo 'Stats unavailable'
+                  docker stats --no-stream balanced-app-new 2>/dev/null || echo 'Stats unavailable'
                   echo '--- End Diagnostics ---'
                   echo ""
                 fi
@@ -485,7 +496,7 @@ jobs:
             if [ "\$HEALTH_CHECK_PASSED" = "true" ]; then
               echo 'SUCCESS: Application is healthy and ready!'
               echo 'Final container status:'
-              docker ps --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+              docker ps --filter name=balanced-app-new
               exit 0
             else
               echo ""
@@ -494,14 +505,12 @@ jobs:
               echo '=== FAILURE DIAGNOSTICS ==='
 
               echo 'Final container status:'
-              docker ps -a --filter name=balanced-app-new --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.RunningFor}}\t{{.Size}}'
+              docker ps -a --filter name=balanced-app-new
 
               echo ""
               echo 'Container inspect (relevant fields):'
-              echo -n 'Status: '; docker inspect balanced-app-new --format='{{.State.Status}}' 2>/dev/null || echo 'unknown'
-              echo -n 'ExitCode: '; docker inspect balanced-app-new --format='{{.State.ExitCode}}' 2>/dev/null || echo 'unknown'
-              echo -n 'Error: '; docker inspect balanced-app-new --format='{{.State.Error}}' 2>/dev/null || echo 'none'
-              echo -n 'StartedAt: '; docker inspect balanced-app-new --format='{{.State.StartedAt}}' 2>/dev/null || echo 'unknown'
+              # Use simple docker inspect without complex format templates
+              docker inspect balanced-app-new 2>/dev/null | grep -A 20 '"State"' | head -15 || echo 'Could not inspect container'
 
               echo ""
               echo 'Port binding details:'
@@ -517,7 +526,10 @@ jobs:
 
               echo ""
               echo 'Container environment variables:'
-              docker exec balanced-app-new env 2>/dev/null | grep -E 'NODE_ENV\|PORT\|DATABASE_URL' || echo 'Could not retrieve env vars'
+              # Show key environment variables without complex regex
+              docker exec balanced-app-new env 2>/dev/null | grep NODE_ENV || echo 'NODE_ENV not found'
+              docker exec balanced-app-new env 2>/dev/null | grep PORT || echo 'PORT not found'
+              docker exec balanced-app-new env 2>/dev/null | grep DATABASE_URL || echo 'DATABASE_URL not found'
 
               echo '=== END DIAGNOSTICS ==='
               echo ""
@@ -601,8 +613,8 @@ jobs:
             # Use heredoc approach for Docker template syntax
             cat << 'EOT' > /tmp/list_tags.sh
             #!/bin/bash
-            # Get tags using Docker's native template formatting
-            docker images "$1" --format '{{.Tag}}' | grep -v 'latest' | grep -v '<none>' | sort -r
+            # Get tags using simple docker images command
+            docker images "$1" | awk 'NR>1 {print $2}' | grep -v 'latest' | grep -v '<none>' | sort -r
             EOT
             chmod +x /tmp/list_tags.sh
             TAGS=\$(/tmp/list_tags.sh "\$REPO")
