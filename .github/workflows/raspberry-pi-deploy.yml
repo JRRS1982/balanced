@@ -421,14 +421,26 @@ jobs:
 
             HEALTH_CHECK_PASSED=false
 
-            for attempt in \$(seq 1 12); do
+            # Use simple for loop with range to avoid any command substitution issues
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
               echo ""
               echo "=== Health check attempt \$attempt/12 ==="
 
               # Use curl to get health status and check for 'ok' status
               echo "Attempting to connect to: http://localhost:\$NEW_PORT/api/health"
-              HEALTH_RESPONSE=\$(curl -s --connect-timeout 5 --max-time 10 http://localhost:\$NEW_PORT/api/health 2>&1)
+
+              # Save curl output to file to avoid command substitution syntax issues
+              curl -s --connect-timeout 5 --max-time 10 http://localhost:\$NEW_PORT/api/health > /tmp/health_response 2>&1
               CURL_EXIT_CODE=\$?
+
+              # Read response from file instead of using command substitution
+              if [ -f /tmp/health_response ]; then
+                echo 'Curl response:'
+                cat /tmp/health_response
+              else
+                echo 'Curl response: no response file'
+              fi
+
               # Get HTTP status code using a different approach to avoid shell syntax issues
               # Use curl's exit code and response to determine status instead of format strings
               if curl -s --connect-timeout 5 --max-time 10 http://localhost:\$NEW_PORT/api/health >/dev/null 2>&1; then
@@ -439,7 +451,6 @@ jobs:
 
               echo "Curl exit code: \$CURL_EXIT_CODE"
               echo "HTTP status code: \$HTTP_CODE"
-              echo "Curl response: \$HEALTH_RESPONSE"
 
               # Decode curl exit codes for better debugging
               if [ \$CURL_EXIT_CODE -eq 0 ]; then
@@ -456,7 +467,7 @@ jobs:
                 echo "Curl status: Unknown error (code \$CURL_EXIT_CODE)"
               fi
 
-              if [ \$CURL_EXIT_CODE -eq 0 ] && echo "\$HEALTH_RESPONSE" | grep -q '"status":"ok"'; then
+              if [ \$CURL_EXIT_CODE -eq 0 ] && grep -q '"status":"ok"' /tmp/health_response 2>/dev/null; then
                 echo 'SUCCESS: Health check passed!'
                 HEALTH_CHECK_PASSED=true
                 break
