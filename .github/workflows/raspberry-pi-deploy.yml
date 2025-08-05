@@ -1,13 +1,4 @@
 # Deploy to Raspberry Pi via Cloudflare Tunnel
-#
-# Required secrets:
-#  - PI_CLOUDFLARE_HOSTNAME: The hostname for SSH access via Cloudflare Tunnel (e.g., ssh.yourdomain.com)
-#  - PI_USERNAME: The SSH username for the Raspberry Pi
-#  - DOCKERHUB_USERNAME: Your Docker Hub username
-#  - DOCKERHUB_TOKEN: Your Docker Hub access token
-#  - SSH_PRIVATE_KEY: Private key for SSH access
-#  - SSH_KNOWN_HOSTS: Known hosts file content
-
 name: Deploy to Raspberry Pi
 
 on:
@@ -204,161 +195,54 @@ jobs:
             echo 'Deployment timestamp saved: '\$(cat /tmp/deploy_timestamp)
           "
 
-      # Note: Make sure to add the PI_CLOUDFLARE_HOSTNAME secret in GitHub repository settings
-      # This should be the hostname created by Cloudflare Tunnel (e.g., ssh.yourdomain.com)
-      - name: Prepare for blue-green deployment
+      - name: Copy production files to Raspberry Pi
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
           PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
         run: |
-          # Set up blue-green deployment port configuration
-          echo "Preparing for blue-green deployment"
+          echo "Copying production configuration files to Raspberry Pi"
 
-          ssh -o StrictHostKeyChecking=accept-new \
+          # Copy essential configuration files
+          scp -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
-            echo 'Checking for existing application container...'
-            CURRENT_CONTAINER=\$(docker ps -q -f name=balanced-app)
+              compose.prod.yml .env.production \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
 
-            # Show running containers for debugging
-            echo 'Currently running containers:'
-            docker ps
+          # Copy nginx configuration directory
+          scp -r -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              src/services/nginx/ \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/src/services/
 
-            # Determine ports for blue-green deployment
-            echo 'Setting up blue-green deployment ports'
-            if [ -z \"\$CURRENT_CONTAINER\" ]; then
-              echo 'No existing container found, using default ports'
-              echo '3000' > /tmp/new_port
-              echo '3001' > /tmp/old_port
-            else
-              echo 'Existing container found: '\$CURRENT_CONTAINER
-              # Check which port the current container is using
-              CURRENT_PORT=\$(docker port \$CURRENT_CONTAINER | grep -o '0.0.0.0:3000' | wc -l)
-              if [ \"\$CURRENT_PORT\" -gt 0 ]; then
-                echo 'Current container uses port 3000, new container will use port 3001'
-                echo '3001' > /tmp/new_port
-                echo '3000' > /tmp/old_port
-              else
-                echo 'Current container uses port 3001, new container will use port 3000'
-                echo '3000' > /tmp/new_port
-                echo '3001' > /tmp/old_port
-              fi
-            fi
+          # Copy scripts directory (contains backup and startup scripts)
+          scp -r -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              scripts/ \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
 
-            echo 'Selected ports:'
-            echo 'New container port: '\$(cat /tmp/new_port)
-            echo 'Old container port: '\$(cat /tmp/old_port)
+          echo "Production files and scripts copied successfully"
 
-            # Copy volume configuration from existing container if available
-            if [ ! -z \"\$CURRENT_CONTAINER\" ]; then
-              echo 'Extracting volume configuration from current container'
-              # Get volume mapping using a simpler approach to avoid shell syntax issues
-              # Extract volume information without complex template syntax
-              # Use simple docker inspect without format templates
-              docker inspect \$CURRENT_CONTAINER 2>/dev/null | grep -A 10 '"Mounts"' | grep '"Source"' | cut -d'"' -f4 > /tmp/volume_sources 2>/dev/null || echo 'none' > /tmp/volume_sources
-              docker inspect \$CURRENT_CONTAINER 2>/dev/null | grep -A 10 '"Mounts"' | grep '"Destination"' | cut -d'"' -f4 > /tmp/volume_destinations 2>/dev/null || echo 'none' > /tmp/volume_destinations
-              # Combine sources and destinations
-              paste -d':' /tmp/volume_sources /tmp/volume_destinations > /tmp/container_volumes 2>/dev/null || echo 'none' > /tmp/container_volumes
-              echo 'Volume configuration saved:'
-              cat /tmp/container_volumes
-
-              # Save current container ID for later use
-              echo \$CURRENT_CONTAINER > /tmp/current_container_id
-              echo 'Current container ID saved: '\$(cat /tmp/current_container_id)
-            else
-              echo 'No existing container, no volumes to preserve'
-            fi
-            "
-          echo "Blue-green deployment preparation completed"
-
-      - name: Deploy new container
+      - name: Deploy with Docker Compose
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
           PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
-          NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
         run: |
-          # Deploy the new container with the proper configuration
-          echo "Starting deployment of new container"
+          echo "Starting Docker Compose deployment"
 
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              -o ServerAliveInterval=30 \
-              -o ServerAliveCountMax=3 \
-              -o ConnectTimeout=10 \
-              -o TCPKeepAlive=yes \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
-            # Load saved values from previous steps
-            TIMESTAMP=\$(cat /tmp/deploy_timestamp)
-            NEW_PORT=\$(cat /tmp/new_port)
 
-            echo 'Deploying new container with timestamp: '\$TIMESTAMP
-            echo 'Container will use internal port: '\$NEW_PORT
+            # Navigate to deployment directory
+            cd ~/balanced-app
 
-            # Set up volume arguments if needed
-            echo 'Setting up volume configuration'
-            VOLUME_ARGS=\"\"
-            if [ -f /tmp/container_volumes ]; then
-              VOLUMES=\$(cat /tmp/container_volumes)
-              if [ ! -z \"\$VOLUMES\" ]; then
-                echo 'Using volumes from previous container:'
-                for VOLUME in \$VOLUMES; do
-                  echo '  - '\$VOLUME
-                  VOLUME_ARGS=\"\$VOLUME_ARGS -v \$VOLUME\"
-                done
-              else
-                echo 'No volumes found in configuration file'
-              fi
-            else
-              echo 'No volume configuration file found'
-            fi
+            # Create required directories
+            mkdir -p certs nginx-logs backups static-html
 
-            # Debug container deployment
-            echo 'Available images:'
-            docker images
-
-            # Run the new container with the correct image name and explicit platform
-            echo 'Running container with the locally tagged image: ${{ env.DOCKERHUB_REPO }}:'\${TIMESTAMP}
-
-            # Debug: Confirm the locally tagged image exists before trying to use it
-            echo 'Confirming image exists:'
-            # Check if image exists
-            IMAGE_EXISTS=0
-            docker images "${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}" --quiet | grep -q . || IMAGE_EXISTS=1
-
-            # Check if image exists using our helper script result
-            if [ "\$IMAGE_EXISTS" -eq 0 ]; then
-              echo 'Image found locally, proceeding with deployment'
-
-              docker run --platform=linux/arm64 -d \
-                --name balanced-app-new \
-                --restart unless-stopped \
-                -p 3000:\$NEW_PORT \
-                -e DATABASE_URL='$DATABASE_URL' \
-                -e NEXTAUTH_SECRET='$NEXTAUTH_SECRET' \
-                -e NEXTAUTH_URL='$NEXTAUTH_URL' \
-                \$VOLUME_ARGS \
-                ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}
-
-              if [ $? -eq 0 ]; then
-                echo 'Container started successfully'
-              else
-                echo 'Error starting container'
-                exit 1
-              fi
-            else
-              echo 'ERROR: Tagged image not found locally. This likely indicates a problem with the tagging step.'
-              echo 'Available images:'
-              docker images
-              exit 1
-            fi
-
-            # Verify container was created successfully
-            echo 'New container created:'
-            docker ps | grep balanced-app-new
+            # Run blue-green deployment script
+            chmod +x scripts/deploy-blue-green.sh
+            ./scripts/deploy-blue-green.sh
           "
-          echo "New container deployment completed"
 
       - name: Health check
         id: health_check
@@ -368,188 +252,16 @@ jobs:
         run: |
           echo "Starting container health check"
 
-          # Verify the new container is healthy using the dedicated health endpoint
+          # Verify the Docker Compose services are healthy
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              -o ServerAliveInterval=30 \
-              -o ServerAliveCountMax=3 \
-              -o ConnectTimeout=10 \
-              -o TCPKeepAlive=yes \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
 
-            echo 'SSH connection established, starting health check...'
-            echo 'Current working directory:' \$(pwd)
-            echo 'Current user:' \$(whoami)
-            echo 'Timestamp:' \$(date)
-            echo '--- Starting container health verification ---'
+            cd ~/balanced-app
 
-            # First check if container is running
-            echo 'Checking if container exists and is running...'
-            if ! docker ps | grep -q balanced-app-new; then
-              echo 'ERROR: Container balanced-app-new is not running'
-              echo 'Container status:'
-              docker ps -a | grep balanced-app-new || echo 'Container does not exist'
-
-              if docker ps -a | grep -q balanced-app-new; then
-                echo 'Container logs:'
-                docker logs balanced-app-new 2>&1 || echo 'Could not retrieve logs'
-              fi
-
-              echo 'Cleaning up failed container...'
-              docker rm -f balanced-app-new 2>/dev/null || true
-              echo 'Exiting due to container not running'
-              exit 1
-            fi
-
-            echo 'SUCCESS: Container is running, performing health check...'
-
-            # Get port mapping info
-            NEW_PORT=\$(cat /tmp/new_port 2>/dev/null || echo '3000')
-            echo 'Container mapped to internal port: '\$NEW_PORT
-
-            # Health check using dedicated endpoint with retry logic
-            echo 'Checking application health (2 minute timeout)...'
-            echo "Expected health endpoint: http://localhost:\$NEW_PORT/api/health"
-
-            # Show initial container state
-            echo 'Initial container state:'
-            docker ps --filter name=balanced-app-new
-
-            # Check if port is actually listening
-            echo "Checking if port \$NEW_PORT is listening..."
-            netstat -tlnp | grep :\$NEW_PORT || echo "Port \$NEW_PORT is not listening"
-
-            HEALTH_CHECK_PASSED=false
-
-            # Use simple for loop with range to avoid any command substitution issues
-            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-              echo ""
-              echo "=== Health check attempt \$attempt/12 ==="
-
-              # Use curl to get health status and check for 'ok' status
-              echo "Attempting to connect to: http://localhost:\$NEW_PORT/api/health"
-
-              # Save curl output to file to avoid command substitution syntax issues
-              curl -s --connect-timeout 5 --max-time 10 http://localhost:\$NEW_PORT/api/health > /tmp/health_response 2>&1
-              CURL_EXIT_CODE=\$?
-
-              # Read response from file instead of using command substitution
-              if [ -f /tmp/health_response ]; then
-                echo 'Curl response:'
-                cat /tmp/health_response
-              else
-                echo 'Curl response: no response file'
-              fi
-
-              # Get HTTP status code using a different approach to avoid shell syntax issues
-              # Use curl's exit code and response to determine status instead of format strings
-              if curl -s --connect-timeout 5 --max-time 10 http://localhost:\$NEW_PORT/api/health >/dev/null 2>&1; then
-                HTTP_CODE='200'
-              else
-                HTTP_CODE='000'
-              fi
-
-              echo "Curl exit code: \$CURL_EXIT_CODE"
-              echo "HTTP status code: \$HTTP_CODE"
-
-              # Decode curl exit codes for better debugging
-              if [ \$CURL_EXIT_CODE -eq 0 ]; then
-                echo "Curl status: Success"
-              elif [ \$CURL_EXIT_CODE -eq 7 ]; then
-                echo "Curl status: Failed to connect to host"
-              elif [ \$CURL_EXIT_CODE -eq 28 ]; then
-                echo "Curl status: Operation timeout"
-              elif [ \$CURL_EXIT_CODE -eq 52 ]; then
-                echo "Curl status: Empty reply from server"
-              elif [ \$CURL_EXIT_CODE -eq 56 ]; then
-                echo "Curl status: Failure in receiving network data"
-              else
-                echo "Curl status: Unknown error (code \$CURL_EXIT_CODE)"
-              fi
-
-              if [ \$CURL_EXIT_CODE -eq 0 ] && grep -q '"status":"ok"' /tmp/health_response 2>/dev/null; then
-                echo 'SUCCESS: Health check passed!'
-                HEALTH_CHECK_PASSED=true
-                break
-              else
-                echo "Health check failed (curl exit code: \$CURL_EXIT_CODE), waiting 10 seconds..."
-
-                # Show detailed diagnostics every few attempts
-                # Show diagnostics every 3rd attempt (3, 6, 9, 12)
-                SHOW_DIAGNOSTICS=false
-                if [ \$attempt -eq 3 ]; then SHOW_DIAGNOSTICS=true; fi
-                if [ \$attempt -eq 6 ]; then SHOW_DIAGNOSTICS=true; fi
-                if [ \$attempt -eq 9 ]; then SHOW_DIAGNOSTICS=true; fi
-                if [ \$attempt -eq 12 ]; then SHOW_DIAGNOSTICS=true; fi
-                if [ "\$SHOW_DIAGNOSTICS" = "true" ]; then
-                  echo ""
-                  echo '--- Diagnostic Information ---'
-                  echo 'Container status:'
-                  docker ps --filter name=balanced-app-new
-
-                  echo 'Port status:'
-                  netstat -tlnp | grep :\$NEW_PORT || echo "Port \$NEW_PORT is not listening"
-
-                  echo 'Recent container logs (last 10 lines):'
-                  docker logs --tail=10 balanced-app-new 2>/dev/null || echo 'No logs available'
-
-                  echo 'Container resource usage:'
-                  docker stats --no-stream balanced-app-new 2>/dev/null || echo 'Stats unavailable'
-                  echo '--- End Diagnostics ---'
-                  echo ""
-                fi
-
-                sleep 10
-              fi
-            done
-
-            # Final result
-            if [ "\$HEALTH_CHECK_PASSED" = "true" ]; then
-              echo 'SUCCESS: Application is healthy and ready!'
-              echo 'Final container status:'
-              docker ps --filter name=balanced-app-new
-              exit 0
-            else
-              echo ""
-              echo 'ERROR: Health check failed after 2 minutes'
-              echo ""
-              echo '=== FAILURE DIAGNOSTICS ==='
-
-              echo 'Final container status:'
-              docker ps -a --filter name=balanced-app-new
-
-              echo ""
-              echo 'Container inspect (relevant fields):'
-              # Use simple docker inspect without complex format templates
-              docker inspect balanced-app-new 2>/dev/null | grep -A 20 '"State"' | head -15 || echo 'Could not inspect container'
-
-              echo ""
-              echo 'Port binding details:'
-              docker port balanced-app-new 2>/dev/null || echo 'No port bindings found'
-
-              echo ""
-              echo 'System port status:'
-              netstat -tlnp | grep :\$NEW_PORT || echo "Port \$NEW_PORT is not listening"
-
-              echo ""
-              echo 'Complete container logs:'
-              docker logs balanced-app-new 2>&1 || echo 'No logs available'
-
-              echo ""
-              echo 'Container environment variables:'
-              # Show key environment variables without complex regex
-              docker exec balanced-app-new env 2>/dev/null | grep NODE_ENV || echo 'NODE_ENV not found'
-              docker exec balanced-app-new env 2>/dev/null | grep PORT || echo 'PORT not found'
-              docker exec balanced-app-new env 2>/dev/null | grep DATABASE_URL || echo 'DATABASE_URL not found'
-
-              echo '=== END DIAGNOSTICS ==='
-              echo ""
-
-              echo 'Cleaning up failed deployment...'
-              docker stop balanced-app-new || true
-              docker rm balanced-app-new || true
-              exit 1
-            fi
+            # Run health check script
+            chmod +x scripts/health-check.sh
+            ./scripts/health-check.sh
           "
 
       - name: Finalize deployment
@@ -560,40 +272,24 @@ jobs:
         run: |
           echo "Finalizing successful deployment"
 
-          # Deploy the new container with improved SSH stability
+          # Finalize Docker Compose deployment
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              -o ServerAliveInterval=30 \
-              -o ServerAliveCountMax=3 \
-              -o ConnectTimeout=10 \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "set -e
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
 
-            # Get port mapping info (for logging purposes)
-            NEW_PORT=\$(cat /tmp/new_port 2>/dev/null || echo '3000')
-            echo 'Container mapped to internal port: '\$NEW_PORT
+            cd ~/balanced-app
 
-            # Clean up old container if it exists
-            if [ -f /tmp/current_container_id ]; then
-              CURRENT_CONTAINER=\$(cat /tmp/current_container_id)
-              echo 'Stopping previous container: '\$CURRENT_CONTAINER
+            echo 'Verifying final deployment status...'
+            docker compose -f compose.prod.yml ps
 
-              # Stop with timeout and remove
-              docker stop --time=10 \$CURRENT_CONTAINER || true
-              docker rm \$CURRENT_CONTAINER || echo 'WARNING: Could not remove old container'
-              echo 'Old container removed'
-            else
-              echo 'No previous container found'
-            fi
-
-            # Rename new container to standard name
-            echo 'Setting new container as primary'
-            docker rename balanced-app-new balanced-app
-            if [ \$? -eq 0 ]; then
+            echo 'Checking service health...'
+            if docker compose -f compose.prod.yml ps | grep -q 'Up'; then
               echo 'SUCCESS: DEPLOYMENT SUCCESSFUL'
-              echo 'Application is now running'
+              echo 'All services are running'
+              echo 'Application is accessible via nginx proxy'
             else
-              echo 'WARNING: Could not rename container - verify manually'
-              # Don't fail the build for rename issue
+              echo 'WARNING: Some services may not be running properly'
+              docker compose -f compose.prod.yml logs --tail=20
             fi
           "
 

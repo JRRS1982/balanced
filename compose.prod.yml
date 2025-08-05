@@ -1,99 +1,165 @@
-# Production Docker Compose Configuration
+# Production Blue-Green Docker Compose
+
 services:
-  app:
+  # Blue Environment
+  app-blue:
     build:
       context: .
       dockerfile: Dockerfile.prod
-    container_name: balanced_app_prod
+    container_name: balanced_app_blue
+    restart: unless-stopped
     environment:
       - NODE_ENV=production
+      - APP_COLOR=blue
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
     env_file:
       - .env.production
     ports:
-      - '3000:3000'
-    restart: always
-    command: npm run start
+      - '3001:3000'  # Blue runs on port 3001
+    volumes:
+      # No source code mounting in production
+      - app_uploads:/app/uploads  # If you have file uploads
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:3000/api/health']
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
+      start_period: 60s
+    command: sh -c "npx prisma migrate deploy && npm start"
+    networks:
+      - app-network
 
-  # database service: migrations are handled by github action
+  # Green Environment
+  app-green:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: balanced_app_green
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - APP_COLOR=green
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+    env_file:
+      - .env.production
+    ports:
+      - '3002:3000'  # Green runs on port 3002
+    volumes:
+      - app_uploads:/app/uploads  # Shared uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    command: sh -c "npx prisma migrate deploy && npm start"
+    networks:
+      - app-network
+
+  # Single Database (shared between blue/green)
   db:
     container_name: balanced_db_prod
     image: postgres:16-alpine
-    restart: always
-    env_file:
-      - .env.production
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_INITDB_ARGS: '--encoding=UTF8 --lc-collate=C --lc-ctype=C'
+    env_file:
+      - .env.production
+    ports:
+      - '${DB_PORT:-5432}:5432'
     volumes:
-      # persist the database data between container restarts in production
-      - balanced_prod_data:/var/lib/postgresql/data
+      # Production persistent storage
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/backups:/backups
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_NAME}']
       interval: 10s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
+      start_period: 30s
+    networks:
+      - app-network
 
-  # database backup service to create daily backups
+  # Database backup service - creates daily backups with cleanup
   backup:
     container_name: balanced_backup_prod
     image: postgres:16-alpine
-    restart: always
+    restart: unless-stopped
     env_file:
       - .env.production
     volumes:
-      - ./backups:/backups
+      - ./db/backups:/backups
+      - ./scripts:/app/scripts:ro
     depends_on:
-      - db
-    command: >
-      sh -c "mkdir -p /backups &&
-             echo '0 2 * * * pg_dump -h db -U ${DB_USER} -d ${DB_NAME} -f /backups/balanced_backup_`date +\%Y\%m\%d\%H\%M\%S`.sql' > /var/spool/cron/crontabs/root &&
-             crond -f"
-
-  # nginx service to serve the app from the public internet with SSL
-  nginx:
-    container_name: balanced_nginx_prod
-    image: nginx:alpine
-    restart: always
-    ports:
-      - '80:80' # HTTP port (for redirects to HTTPS)
-      - '443:443' # HTTPS port
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./certs:/etc/nginx/certs:ro # SSL certificates
-      - ./nginx-logs:/var/log/nginx # Persist nginx logs
-      - ./static-html:/usr/share/nginx/html:ro # Static error pages
-    depends_on:
-      app:
+      db:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
+    command: ["/app/scripts/backup-init.sh"]
+    networks:
+      - app-network
+
+  # Nginx Load Balancer
+  nginx:
+    image: nginx:alpine
+    container_name: balanced_nginx_prod
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./src/services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./src/services/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
+      - ./src/services/nginx/ssl:/etc/nginx/ssl:ro
+      - ./src/services/nginx/logs:/var/log/nginx
+    depends_on:
+      - app-blue
+      - app-green
     healthcheck:
-      test: ['CMD', 'nginx', '-t']
-      interval: 60s
-      timeout: 5s
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/nginx-health"]
+      interval: 30s
+      timeout: 10s
       retries: 3
+    networks:
+      - app-network
+
+  studio:
+    container_name: balanced_studio_prod
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - ./prisma:/app/prisma:ro
+      - ./package.json:/app/package.json:ro
+      - ./package-lock.json:/app/package-lock.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+    env_file:
+      - .env.production
+    command: sh -c "npm install prisma && npx prisma studio --port 5555 --hostname 0.0.0.0"
+    ports:
+      - '5555:5555'
+    profiles:
+      - debug  # Only start with: docker-compose --profile debug up
+    networks:
+      - app-network
 
 volumes:
-  balanced_prod_data:
-    name: balanced_prod_data
+  postgres_data:
+    name: balanced_postgres_prod_data
+  app_uploads:
+    name: balanced_app_uploads
+
+networks:
+  app-network:
+    driver: bridge
