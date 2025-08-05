@@ -126,6 +126,9 @@ jobs:
     # only deploy on push, not on pull request
     # if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install cloudflared on GitHub runner
         run: |
           # Download and install cloudflared on the GitHub runner
