@@ -13,8 +13,6 @@ on:
         required: false # allows for manual re-deployment
         default: 'latest'
 
-env:
-  DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/balanced
 
 jobs:
   lint:
@@ -74,54 +72,30 @@ jobs:
       - name: Run tests
         run: npm run test
 
-  build:
-    name: Build And Push Docker Image
-    needs: [test, lint, typecheck]
+  build-test:
+    name: Validate Docker Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up QEMU for multi-architecture builds
-        uses: docker/setup-qemu-action@v2
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.DOCKERHUB_REPO }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=sha,format=long
-            type=ref,event=branch
-            type=raw,value={{date 'YYYYMMDD-HHmmss'}}
-            latest
-
-      - name: Build and push Docker image
+      - name: Test Docker build (no push)
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile.prod
-          # push: ${{ github.event_name != 'pull_request' }} # only push new image on push, not on pull request to master
-          push: true
-          platforms: linux/amd64,linux/arm64 # For x86_64 PCs and Raspberry Pi 3/4/5 with 64-bit OS
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache
-          cache-to: type=registry,ref=${{ env.DOCKERHUB_REPO }}:buildcache,mode=max
+          push: false  # Only test the build, don't push anywhere
+          platforms: linux/arm64  # Test for Raspberry Pi architecture
+          tags: balanced:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
     name: Deploy to Raspberry Pi
-    needs: build
+    needs: [test, build-test, lint, typecheck]
     runs-on: ubuntu-latest
     # only deploy on push, not on pull request
     # if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
@@ -143,60 +117,7 @@ jobs:
           known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           if_key_exists: fail # Replace with "replace" if you want to replace it
 
-      - name: Pull Docker image on Raspberry Pi
-        env:
-          PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          # Login to Docker Hub and pull the image on the Pi via Cloudflare Tunnel
-          echo "Starting Docker image pull on Raspberry Pi"
 
-          # Establish SSH connection through cloudflared
-          ssh -o StrictHostKeyChecking=accept-new \
-              -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
-            echo 'Starting Docker Hub login'
-            docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_TOKEN
-
-            echo 'Pulling image from Docker Hub: ${{ env.DOCKERHUB_REPO }}:latest'
-            # Force platform to linux/arm64 for Raspberry Pi compatibility
-            docker pull --platform linux/arm64 ${{ env.DOCKERHUB_REPO }}:latest
-
-            # Verify image was pulled successfully
-            echo 'Listing available Docker images after pull:'
-            docker images | grep ${{ env.DOCKERHUB_REPO }}
-          "
-          echo "Docker image pull completed"
-
-      - name: Tag Docker image with timestamp
-        env:
-          PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
-        run: |
-          # Create a timestamped tag for versioning
-          echo "Creating timestamped tag for deployment tracking"
-
-          ssh -o StrictHostKeyChecking=accept-new \
-              -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
-            # Generate timestamp for version tagging
-            TIMESTAMP=\$(date +%Y%m%d%H%M%S)
-            echo 'Creating tag with timestamp: '\${TIMESTAMP}
-
-            # Tag the image with the timestamp
-            # Note: docker tag doesn't support the --platform flag
-            docker tag ${{ env.DOCKERHUB_REPO }}:latest ${{ env.DOCKERHUB_REPO }}:\${TIMESTAMP}
-
-            # Verify tag was created and save timestamp for later use
-            echo 'Verifying tagged image:'
-            docker images | grep ${{ env.DOCKERHUB_REPO }}
-
-            # Save timestamp for use in later deployment steps
-            echo \${TIMESTAMP} > /tmp/deploy_timestamp
-            echo 'Deployment timestamp saved: '\$(cat /tmp/deploy_timestamp)
-          "
 
       - name: Copy production files to Raspberry Pi
         env:
@@ -323,17 +244,17 @@ jobs:
           "
 
       - name: Clean-up
-        if: always() # Run cleanup even if previous steps fail
+        if: always() # Run clean-up even if previous steps fail
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
           PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
         run: |
-          echo "Performing post-deployment cleanup"
+          echo "Performing post-deployment clean-up"
 
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
-            echo 'Running post-deployment cleanup...'
+            echo 'Running post-deployment clean-up...'
 
             # Remove temporary image file if it exists
             rm -f /tmp/balanced-image.tar
@@ -342,32 +263,12 @@ jobs:
             echo 'Removing temporary files'
             rm -f /tmp/deploy_timestamp /tmp/new_port /tmp/old_port /tmp/container_volumes /tmp/current_container_id
 
-            # Clean up old images (keep only the 3 most recent)
-            echo 'Cleaning up old Docker images (keeping 3 most recent)'
-            REPO='${{ env.DOCKERHUB_REPO }}'
-
-            # Use heredoc approach for Docker template syntax
-            cat << 'EOT' > /tmp/list_tags.sh
-            #!/bin/bash
-            # Get tags using simple docker images command
-            docker images "$1" | awk 'NR>1 {print $2}' | grep -v 'latest' | grep -v '<none>' | sort -r
-            EOT
-            chmod +x /tmp/list_tags.sh
-            TAGS=\$(/tmp/list_tags.sh "\$REPO")
-            rm /tmp/list_tags.sh
-            COUNT=\$(echo "\$TAGS" | wc -l)
-
-            if [ \$COUNT -gt 3 ]; then
-              echo "Found \$COUNT tags, removing old ones"
-              echo "\$TAGS" | tail -n +4 | xargs -r -I {} docker rmi \$REPO:{} 2>/dev/null || true
-              echo 'SUCCESS: Image clean-up completed'
-            else
-              echo "Only \$COUNT tagged images found, no clean-up needed"
-            fi
+            # Clean up unused Docker images and containers
+            echo 'Cleaning up unused Docker images and containers'
 
             # General clean-up of dangling images
             echo 'Removing any dangling images'
             docker image prune -f
 
-            echo 'SUCCESS: Cleanup completed successfully'
+            echo 'SUCCESS: Clean-up completed successfully'
           "
