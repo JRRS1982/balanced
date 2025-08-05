@@ -218,11 +218,22 @@ jobs:
               compose.prod.yml \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
 
-          echo "Copying .env.production..."
-          scp -o StrictHostKeyChecking=accept-new \
+          echo "Creating .env.production from secrets..."
+          ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              .env.production \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME \
+              "echo '# Database' > ~/balanced-app/.env.production && \
+               echo 'DB_USER=${{ secrets.DB_USER }}' >> ~/balanced-app/.env.production && \
+               echo 'DB_PASSWORD=${{ secrets.DB_PASSWORD }}' >> ~/balanced-app/.env.production && \
+               echo 'DB_NAME=${{ secrets.DB_NAME }}' >> ~/balanced-app/.env.production && \
+               echo 'DB_PORT=5432' >> ~/balanced-app/.env.production && \
+               echo 'DB_HOST=db' >> ~/balanced-app/.env.production && \
+               echo '' >> ~/balanced-app/.env.production && \
+               echo '# Database URL: @db as that is the service name in compose.prod.yml' >> ~/balanced-app/.env.production && \
+               echo 'DATABASE_URL=${{ secrets.DATABASE_URL }}' >> ~/balanced-app/.env.production && \
+               echo '' >> ~/balanced-app/.env.production && \
+               echo '# Application' >> ~/balanced-app/.env.production && \
+               echo 'NODE_ENV=production' >> ~/balanced-app/.env.production"
 
           # Copy nginx configuration directory
           echo "Copying nginx configuration..."
