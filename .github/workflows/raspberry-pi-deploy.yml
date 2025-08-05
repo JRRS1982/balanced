@@ -205,19 +205,34 @@ jobs:
         run: |
           echo "Copying production configuration files to Raspberry Pi"
 
-          # Copy essential configuration files
+          # Ensure target directories exist on Pi
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME \
+              "mkdir -p ~/balanced-app/src/services ~/balanced-app/scripts"
+
+          # Copy essential configuration files individually for reliability
+          echo "Copying compose.prod.yml..."
           scp -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              compose.prod.yml .env.production \
+              compose.prod.yml \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+
+          echo "Copying .env.production..."
+          scp -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              .env.production \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
 
           # Copy nginx configuration directory
+          echo "Copying nginx configuration..."
           scp -r -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               src/services/nginx/ \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/src/services/
 
-          # Copy scripts directory (contains backup and startup scripts)
+          # Copy scripts directory (contains deployment scripts)
+          echo "Copying deployment scripts..."
           scp -r -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               scripts/ \
