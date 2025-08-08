@@ -6,6 +6,18 @@ set -e
 
 echo '🔄 Starting Blue-Green Deployment...'
 
+# Check Docker Compose version and set command
+if command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+    echo "📦 Using docker-compose (legacy)"
+elif docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+    echo "📦 Using docker compose (modern)"
+else
+    echo "❌ Error: Neither 'docker compose' nor 'docker-compose' is available"
+    exit 1
+fi
+
 # Determine which environment is currently active
 CURRENT_ACTIVE='blue'
 if grep -q 'server app-green:3000 weight=1' src/services/nginx/upstream.conf; then
@@ -28,15 +40,25 @@ echo "🎯 Deploying to: $TARGET_ENV"
 
 # Pull latest images (no downtime)
 echo '📥 Pulling latest images...'
-docker compose -f compose.prod.yml pull
+$DOCKER_COMPOSE -f compose.prod.yml pull
 
 # Start infrastructure services (db, nginx, backup) if not running
 echo '🏗️  Ensuring infrastructure services are running...'
-docker compose -f compose.prod.yml up -d db nginx backup
+$DOCKER_COMPOSE -f compose.prod.yml up -d db nginx backup
+
+# Wait for database to be ready
+echo '⏳ Waiting for database to be ready...'
+sleep 10
+
+# Run database migrations
+echo '🗄️  Running database migrations...'
+$DOCKER_COMPOSE -f compose.prod.yml run --rm app-blue npx prisma migrate deploy || {
+    echo '⚠️  Migration failed, but continuing deployment...'
+}
 
 # Deploy to target environment
 echo "🚀 Deploying new version to $TARGET_ENV environment..."
-docker compose -f compose.prod.yml up -d $TARGET_CONTAINER
+$DOCKER_COMPOSE -f compose.prod.yml up -d $TARGET_CONTAINER
 
 # Wait for target environment to be ready
 echo "⏳ Waiting for $TARGET_ENV environment to be ready..."
@@ -60,7 +82,7 @@ done
 if [ "$HEALTH_CHECK_PASSED" != "true" ]; then
     echo "❌ $TARGET_ENV environment failed health checks!"
     echo "🔄 Rolling back - keeping $CURRENT_ACTIVE active"
-    docker compose -f compose.prod.yml stop $TARGET_CONTAINER
+    $DOCKER_COMPOSE -f compose.prod.yml stop $TARGET_CONTAINER
     exit 1
 fi
 
@@ -89,7 +111,7 @@ fi
 
 # Reload nginx configuration (no downtime)
 echo "🔄 Reloading nginx configuration..."
-docker compose -f compose.prod.yml exec nginx nginx -s reload
+$DOCKER_COMPOSE -f compose.prod.yml exec nginx nginx -s reload
 
 # Verify traffic switch
 echo "🔍 Verifying traffic switch..."
@@ -97,11 +119,11 @@ sleep 5
 
 # Stop old environment after successful switch
 echo "🛑 Stopping old $CURRENT_ACTIVE environment..."
-docker compose -f compose.prod.yml stop $CURRENT_CONTAINER
+$DOCKER_COMPOSE -f compose.prod.yml stop $CURRENT_CONTAINER
 
 echo "✅ Blue-Green deployment completed successfully!"
 echo "📊 Active environment: $TARGET_ENV"
 
 # Show service status
 echo 'Service status:'
-docker compose -f compose.prod.yml ps
+$DOCKER_COMPOSE -f compose.prod.yml ps

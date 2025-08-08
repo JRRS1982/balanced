@@ -10,26 +10,38 @@ echo 'Current user:' $(whoami)
 echo 'Timestamp:' $(date)
 echo '--- Starting Docker Compose health verification ---'
 
+# Check Docker Compose version and set command
+if command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+    echo "📦 Using docker-compose (legacy)"
+elif docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+    echo "📦 Using docker compose (modern)"
+else
+    echo "❌ Error: Neither 'docker compose' nor 'docker-compose' is available"
+    exit 1
+fi
+
 # Check if all services are running
 echo 'Checking Docker Compose service status...'
-docker compose -f compose.prod.yml ps
+$DOCKER_COMPOSE -f compose.prod.yml ps
 
 # Wait for app service to be healthy
 echo 'Waiting for app service to be ready...'
 sleep 10
 
 # Check if app container is running
-APP_CONTAINER=$(docker compose -f compose.prod.yml ps -q app)
+APP_CONTAINER=$($DOCKER_COMPOSE -f compose.prod.yml ps -q app)
 if [ -z "$APP_CONTAINER" ]; then
   echo 'ERROR: App service is not running'
   echo 'Service logs:'
-  docker compose -f compose.prod.yml logs app
+  $DOCKER_COMPOSE -f compose.prod.yml logs app
   exit 1
 fi
 
 echo 'SUCCESS: App service is running'
 
-# Health check using nginx proxy (port 80/443)
+# Health check using nginx proxy (port 80 - Cloudflare handles HTTPS)
 echo 'Checking application health via nginx proxy...'
 echo 'Expected health endpoint: http://localhost/api/health'
 
@@ -99,14 +111,14 @@ for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
       echo ""
       echo '--- Diagnostic Information ---'
       echo 'Docker Compose service status:'
-      docker compose -f compose.prod.yml ps
+      $DOCKER_COMPOSE -f compose.prod.yml ps
 
       echo 'Port status:'
       netstat -tlnp | grep :80 || echo "Port 80 is not listening"
-      netstat -tlnp | grep :443 || echo "Port 443 is not listening"
+      netstat -tlnp | grep :8080 || echo "Port 8080 (health check) is not listening"
 
       echo 'Recent app service logs (last 10 lines):'
-      docker compose -f compose.prod.yml logs --tail=10 app
+      $DOCKER_COMPOSE -f compose.prod.yml logs --tail=10 app
 
       echo 'Service resource usage:'
       docker stats --no-stream 2>/dev/null | head -5 || echo 'Stats unavailable'
@@ -122,7 +134,7 @@ done
 if [ "$HEALTH_CHECK_PASSED" = "true" ]; then
   echo 'SUCCESS: Application is healthy and ready!'
   echo 'Final service status:'
-  docker compose -f compose.prod.yml ps
+  $DOCKER_COMPOSE -f compose.prod.yml ps
   exit 0
 else
   echo ""
@@ -131,24 +143,24 @@ else
   echo '=== FAILURE DIAGNOSTICS ==='
 
   echo 'Docker Compose service status:'
-  docker compose -f compose.prod.yml ps
+  $DOCKER_COMPOSE -f compose.prod.yml ps
 
   echo ""
   echo 'App service logs:'
-  docker compose -f compose.prod.yml logs app
+  $DOCKER_COMPOSE -f compose.prod.yml logs app
 
   echo ""
   echo 'Database service logs:'
-  docker compose -f compose.prod.yml logs db
+  $DOCKER_COMPOSE -f compose.prod.yml logs db
 
   echo ""
   echo 'Nginx service logs:'
-  docker compose -f compose.prod.yml logs nginx
+  $DOCKER_COMPOSE -f compose.prod.yml logs nginx
 
   echo ""
   echo 'System port status:'
   netstat -tlnp | grep :80 || echo "Port 80 is not listening"
-  netstat -tlnp | grep :443 || echo "Port 443 is not listening"
+  netstat -tlnp | grep :8080 || echo "Port 8080 (health check) is not listening"
 
   echo '=== END DIAGNOSTICS ==='
   echo ""
