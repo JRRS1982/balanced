@@ -113,18 +113,19 @@ services:
     container_name: balanced_nginx_prod
     restart: unless-stopped
     ports:
-      - '80:80'
-      - '443:443'
+      - '80:80' # Main HTTP traffic (Internet (HTTPS) → Cloudflare Edge → Cloudflare Tunnel → Raspberry Pi:80 → nginx:80 → app:3000)
+      - '8080:8080'  # External health check port (Raspberry Pi:8080 → Nginx:8080 → app health endpoints)
     volumes:
       - ./src/services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./src/services/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
-      - ./src/services/nginx/ssl:/etc/nginx/ssl:ro
       - ./src/services/nginx/logs:/var/log/nginx
+      - ./static-html:/usr/share/nginx/html:ro
     depends_on:
       - app-blue
       - app-green
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/nginx-health"]
+      # Internal health check (nginx:80 → app:3000/api/health)
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
