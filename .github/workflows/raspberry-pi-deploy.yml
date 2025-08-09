@@ -138,6 +138,42 @@ jobs:
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               compose.prod.yml \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying compose.prod.yml"
+
+          echo "Copying Dockerfile.prod..."
+          scp -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              Dockerfile.prod \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying Dockerfile.prod"
+
+          echo "Copying package files..."
+          scp -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              package.json package-lock.json \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying package files"
+
+          echo "Copying source code..."
+          scp -r -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              src/ \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying source code"
+
+          echo "Copying Prisma schema..."
+          scp -r -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              prisma/ \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying Prisma schema"
+
+          echo "Copying configuration files..."
+          scp -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              next.config.ts tailwind.config.ts tsconfig.json eslint.config.mjs \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying configuration files"
 
           echo "Creating .env.production from secrets..."
           ssh -o StrictHostKeyChecking=accept-new \
@@ -155,6 +191,7 @@ jobs:
                echo '' >> ~/balanced-app/.env.production && \
                echo '# Application' >> ~/balanced-app/.env.production && \
                echo 'NODE_ENV=production' >> ~/balanced-app/.env.production"
+          echo "Complete: Creating .env.production from secrets"
 
           # Copy nginx configuration directory
           echo "Copying nginx configuration..."
@@ -162,6 +199,7 @@ jobs:
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               src/services/nginx/ \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/src/services/
+          echo "Complete: Copying nginx configuration"
 
           # Copy scripts directory (contains deployment scripts)
           echo "Copying deployment scripts..."
@@ -169,6 +207,7 @@ jobs:
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               scripts/ \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying deployment scripts"
 
           echo "Production files and scripts copied successfully"
 
@@ -213,6 +252,7 @@ jobs:
             chmod +x scripts/health-check.sh
             ./scripts/health-check.sh
           "
+          echo "Complete: Health check"
 
       - name: Finalize deployment
         if: success() && steps.health_check.outcome == 'success'
@@ -242,6 +282,7 @@ jobs:
               docker compose -f compose.prod.yml logs --tail=20
             fi
           "
+          echo "Complete: Finalize deployment"
 
       - name: Clean-up
         if: always() # Run clean-up even if previous steps fail
