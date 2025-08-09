@@ -171,7 +171,7 @@ jobs:
           echo "Copying configuration files..."
           scp -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              next.config.ts tailwind.config.ts tsconfig.json eslint.config.mjs \
+              next.config.ts tsconfig.json eslint.config.mjs \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
           echo "Complete: Copying configuration files"
 
