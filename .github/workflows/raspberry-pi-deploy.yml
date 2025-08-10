@@ -117,8 +117,6 @@ jobs:
           known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           if_key_exists: fail # Replace with "replace" if you want to replace it
 
-
-
       - name: Copy production files to Raspberry Pi
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
@@ -193,7 +191,7 @@ jobs:
                echo 'NODE_ENV=production' >> ~/balanced-app/.env.production && \
                echo 'ENVIRONMENT_FILE=production' >> ~/balanced-app/.env.production"
           echo "Complete: Creating .env.production from secrets"
-          
+
           echo "Verifying .env.production file..."
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
@@ -305,21 +303,39 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new \
               -o ProxyCommand="cloudflared access ssh --hostname %h" \
               $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
-            echo 'Running post-deployment clean-up...'
+            echo 'Running comprehensive post-deployment cleanup...'
 
-            # Remove temporary image file if it exists
-            rm -f /tmp/balanced-image.tar
+            cd ~/balanced-app
 
-            # Clean up all temporary files
-            echo 'Removing temporary files'
-            rm -f /tmp/deploy_timestamp /tmp/new_port /tmp/old_port /tmp/container_volumes /tmp/current_container_id
+            echo 'Host filesystem should be clean - build artifacts only exist inside containers'
+            # Note: node_modules, .next, dist, build are created inside containers, not on host
 
-            # Clean up unused Docker images and containers
-            echo 'Cleaning up unused Docker images and containers'
+            echo 'Removing temporary files...'
+            # Remove deployment temporary files
+            rm -f /tmp/balanced-* 2>/dev/null || true
+            rm -f /tmp/deploy_* 2>/dev/null || true
+            rm -f /tmp/*balanced* 2>/dev/null || true
 
-            # General clean-up of dangling images
-            echo 'Removing any dangling images'
-            docker image prune -f
+            echo 'Comprehensive Docker cleanup...'
+            # Clean up Docker resources now that deployment is complete
+            docker image prune -f  # Remove dangling images
+            docker container prune -f  # Remove stopped containers
+            docker volume prune -f  # Remove unused volumes (preserves active ones)
+            docker network prune -f  # Remove unused networks
+            docker system prune -f  # General Docker cleanup
 
-            echo 'SUCCESS: Clean-up completed successfully'
+            echo 'Cleaning up old environment files...'
+            # Remove development environment files (keep production)
+            rm -f .env.local 2>/dev/null || true
+            rm -f .env.development 2>/dev/null || true
+            rm -f .env.test 2>/dev/null || true
+
+            echo 'System maintenance...'
+            # Clean up system logs (keep last 7 days)
+            sudo journalctl --vacuum-time=7d 2>/dev/null || true
+
+            echo 'Final disk space check:'
+            df -h
+
+            echo 'SUCCESS: Comprehensive cleanup completed successfully'
           "
