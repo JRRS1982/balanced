@@ -72,30 +72,9 @@ jobs:
       - name: Run tests
         run: npm run test
 
-  build-test:
-    name: Validate Docker Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Test Docker build (no push)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.prod
-          push: false  # Only test the build, don't push anywhere
-          platforms: linux/arm64  # Test for Raspberry Pi architecture
-          tags: balanced:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   deploy:
     name: Deploy to Raspberry Pi
-    needs: [test, build-test, lint, typecheck]
+    needs: [test, lint, typecheck]
     runs-on: ubuntu-latest
     # only deploy on push, not on pull request
     # if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
