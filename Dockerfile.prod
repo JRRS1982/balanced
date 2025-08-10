@@ -14,8 +14,9 @@ RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma/
 
-# Install production dependencies only
-RUN npm ci --only=production && npm cache clean --force
+# Install production dependencies only with timeout handling
+RUN npm ci --omit=dev --timeout=300000 --retry=3
+RUN npm cache clean --force
 
 ################# Build #################
 FROM node:18-alpine AS build
