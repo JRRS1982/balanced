@@ -7,10 +7,10 @@ set -e
 echo '🔄 Starting Blue-Green Deployment...'
 
 # Check Docker Compose version and set command
-if command -v docker compose >/dev/null 2>&1; then
+if docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE="docker compose"
     echo "📦 Using docker compose (modern)"
-elif docker compose-version >/dev/null 2>&1; then
+elif docker-compose --version >/dev/null 2>&1; then
     DOCKER_COMPOSE="docker-compose"
     echo "📦 Using docker-compose (legacy)"
 else
