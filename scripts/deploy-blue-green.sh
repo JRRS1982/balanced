@@ -7,21 +7,30 @@ set -e
 echo '🔄 Starting Blue-Green Deployment...'
 
 # Check Docker Compose version and set command
-if command -v docker-compose >/dev/null 2>&1; then
-    DOCKER_COMPOSE="docker-compose"
-    echo "📦 Using docker-compose (legacy)"
-elif docker compose version >/dev/null 2>&1; then
+if command -v docker compose >/dev/null 2>&1; then
     DOCKER_COMPOSE="docker compose"
     echo "📦 Using docker compose (modern)"
+elif docker compose-version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+    echo "📦 Using docker-compose (legacy)"
 else
     echo "❌ Error: Neither 'docker compose' nor 'docker-compose' is available"
     exit 1
 fi
 
 # Determine which environment is currently active
-CURRENT_ACTIVE='blue'
+CURRENT_ACTIVE='undefined'
+
+# Check if green is active
 if grep -q 'server app-green:3000 weight=1' src/services/nginx/upstream.conf; then
     CURRENT_ACTIVE='green'
+# Check if blue is active
+elif grep -q 'server app-blue:3000 weight=1' src/services/nginx/upstream.conf; then
+    CURRENT_ACTIVE='blue'
+else
+    echo "⚠️  Warning: Neither blue nor green appears to be active in upstream.conf"
+    echo "   Defaulting to blue as current active environment"
+    CURRENT_ACTIVE='blue'
 fi
 
 # Set target environment (opposite of current)
@@ -38,13 +47,24 @@ fi
 echo "📍 Current active: $CURRENT_ACTIVE"
 echo "🎯 Deploying to: $TARGET_ENV"
 
-# Pull latest images (no downtime)
-echo '📥 Pulling latest images...'
-$DOCKER_COMPOSE -f compose.prod.yml pull
+# Build latest images (no downtime)
+echo '🔨 Building latest images...'
+$DOCKER_COMPOSE -f compose.prod.yml --env-file .env.production build
 
 # Start infrastructure services (db, nginx, backup) if not running
 echo '🏗️  Ensuring infrastructure services are running...'
-$DOCKER_COMPOSE -f compose.prod.yml up -d db nginx backup
+$DOCKER_COMPOSE -f compose.prod.yml --env-file .env.production up -d db nginx backup
+
+# Debug: Check environment file
+echo '🔍 Checking environment configuration...'
+if [ -f .env.production ]; then
+    echo '✅ .env.production file exists'
+    echo '📝 Environment variables (masked):'
+    sed 's/PASSWORD=.*/PASSWORD=***MASKED***/g; s/DATABASE_URL=.*/DATABASE_URL=***MASKED***/g' .env.production
+else
+    echo '❌ .env.production file not found!'
+    ls -la .env* || echo 'No .env files found'
+fi
 
 # Wait for database to be ready
 echo '⏳ Waiting for database to be ready...'
@@ -52,13 +72,13 @@ sleep 10
 
 # Run database migrations
 echo '🗄️  Running database migrations...'
-$DOCKER_COMPOSE -f compose.prod.yml run --rm app-blue npx prisma migrate deploy || {
+$DOCKER_COMPOSE -f compose.prod.yml --env-file .env.production run --rm app-blue npx prisma migrate deploy || {
     echo '⚠️  Migration failed, but continuing deployment...'
 }
 
 # Deploy to target environment
 echo "🚀 Deploying new version to $TARGET_ENV environment..."
-$DOCKER_COMPOSE -f compose.prod.yml up -d $TARGET_CONTAINER
+$DOCKER_COMPOSE -f compose.prod.yml --env-file .env.production up -d $TARGET_CONTAINER
 
 # Wait for target environment to be ready
 echo "⏳ Waiting for $TARGET_ENV environment to be ready..."
