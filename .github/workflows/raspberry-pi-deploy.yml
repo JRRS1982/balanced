@@ -256,17 +256,29 @@ jobs:
 
             cd ~/balanced-app
 
+            # Detect Docker Compose version (same logic as deployment script)
+            if docker compose version >/dev/null 2>&1; then
+                DOCKER_COMPOSE='docker compose'
+                echo 'Using docker compose (modern)'
+            elif docker-compose --version >/dev/null 2>&1; then
+                DOCKER_COMPOSE='docker-compose'
+                echo 'Using docker-compose (legacy)'
+            else
+                echo 'Error: Neither docker compose nor docker-compose is available'
+                exit 1
+            fi
+
             echo 'Verifying final deployment status...'
-            docker compose -f compose.prod.yml ps
+            $DOCKER_COMPOSE -f compose.prod.yml ps
 
             echo 'Checking service health...'
-            if docker compose -f compose.prod.yml ps | grep -q 'Up'; then
+            if $DOCKER_COMPOSE -f compose.prod.yml ps | grep -q 'Up'; then
               echo 'SUCCESS: DEPLOYMENT SUCCESSFUL'
               echo 'All services are running'
               echo 'Application is accessible via nginx proxy'
             else
               echo 'WARNING: Some services may not be running properly'
-              docker compose -f compose.prod.yml logs --tail=20
+              $DOCKER_COMPOSE -f compose.prod.yml logs --tail=20
             fi
           "
           echo "Complete: Finalize deployment"
