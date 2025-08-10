@@ -269,16 +269,16 @@ jobs:
             fi
 
             echo 'Verifying final deployment status...'
-            $DOCKER_COMPOSE -f compose.prod.yml ps
+            $DOCKER_COMPOSE --file compose.prod.yml ps
 
             echo 'Checking service health...'
-            if $DOCKER_COMPOSE -f compose.prod.yml ps | grep -q 'Up'; then
+            if $DOCKER_COMPOSE --file compose.prod.yml ps | grep -q 'Up'; then
               echo 'SUCCESS: DEPLOYMENT SUCCESSFUL'
               echo 'All services are running'
               echo 'Application is accessible via nginx proxy'
             else
               echo 'WARNING: Some services may not be running properly'
-              $DOCKER_COMPOSE -f compose.prod.yml logs --tail=20
+              $DOCKER_COMPOSE --file compose.prod.yml logs --tail=20
             fi
           "
           echo "Complete: Finalize deployment"

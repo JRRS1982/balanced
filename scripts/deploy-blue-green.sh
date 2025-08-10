@@ -49,11 +49,11 @@ echo "🎯 Deploying to: $TARGET_ENV"
 
 # Build latest images (no downtime)
 echo '🔨 Building latest images...'
-$DOCKER_COMPOSE -f compose.prod.yml --env-file .env.production build
+$DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production build
 
 # Start infrastructure services (db, nginx, backup) if not running
 echo '🏗️  Ensuring infrastructure services are running...'
-$DOCKER_COMPOSE -f compose.prod.yml --env-file .env.production up -d db nginx backup
+$DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production up -d db nginx backup
 
 # Debug: Check environment file
 echo '🔍 Checking environment configuration...'
@@ -72,13 +72,13 @@ sleep 10
 
 # Run database migrations
 echo '🗄️  Running database migrations...'
-$DOCKER_COMPOSE -f compose.prod.yml --env-file .env.production run --rm app-blue npx prisma migrate deploy || {
+$DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production run --rm app-blue npx prisma migrate deploy || {
     echo '⚠️  Migration failed, but continuing deployment...'
 }
 
 # Deploy to target environment
 echo "🚀 Deploying new version to $TARGET_ENV environment..."
-$DOCKER_COMPOSE -f compose.prod.yml --env-file .env.production up -d $TARGET_CONTAINER
+$DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production up -d $TARGET_CONTAINER
 
 # Wait for target environment to be ready
 echo "⏳ Waiting for $TARGET_ENV environment to be ready..."
@@ -102,7 +102,7 @@ done
 if [ "$HEALTH_CHECK_PASSED" != "true" ]; then
     echo "❌ $TARGET_ENV environment failed health checks!"
     echo "🔄 Rolling back - keeping $CURRENT_ACTIVE active"
-    $DOCKER_COMPOSE -f compose.prod.yml stop $TARGET_CONTAINER
+    $DOCKER_COMPOSE --file compose.prod.yml stop $TARGET_CONTAINER
     exit 1
 fi
 
@@ -131,7 +131,7 @@ fi
 
 # Reload nginx configuration (no downtime)
 echo "🔄 Reloading nginx configuration..."
-$DOCKER_COMPOSE -f compose.prod.yml exec nginx nginx -s reload
+$DOCKER_COMPOSE --file compose.prod.yml exec nginx nginx -s reload
 
 # Verify traffic switch
 echo "🔍 Verifying traffic switch..."
@@ -139,11 +139,11 @@ sleep 5
 
 # Stop old environment after successful switch
 echo "🛑 Stopping old $CURRENT_ACTIVE environment..."
-$DOCKER_COMPOSE -f compose.prod.yml stop $CURRENT_CONTAINER
+$DOCKER_COMPOSE --file compose.prod.yml stop $CURRENT_CONTAINER
 
 echo "✅ Blue-Green deployment completed successfully!"
 echo "📊 Active environment: $TARGET_ENV"
 
 # Show service status
 echo 'Service status:'
-$DOCKER_COMPOSE -f compose.prod.yml ps
+$DOCKER_COMPOSE --file compose.prod.yml ps
