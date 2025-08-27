@@ -1,0 +1,82 @@
+# Dockerfile.prod
+
+################# Dependencies #################
+FROM node:18-alpine AS deps
+WORKDIR /app
+
+# Add package that contains curl for healthchecks
+RUN apk add --no-cache curl
+
+# Install necessary system dependencies
+RUN apk add --no-cache libc6-compat
+
+# Copy package files and Prisma schema first (for better layer caching)
+COPY package.json package-lock.json* eslint.config.mjs ./
+COPY prisma ./prisma/
+
+# Install production dependencies only with timeout handling
+RUN npm ci --omit=dev --timeout=300000
+RUN npm cache clean --force
+
+################# Build #################
+FROM node:18-alpine AS build
+WORKDIR /app
+
+# Set Node environment to production during build for optimizations
+ENV NODE_ENV=production
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/prisma ./prisma
+
+# Copy all source files
+COPY . .
+
+# Generate Prisma client and build application
+# Set environment variables for ARM architecture (Raspberry Pi) compatibility
+ENV PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1
+ENV PRISMA_SKIP_POSTINSTALL_GENERATE=true
+# Try to generate Prisma client, continue build if it fails (runtime generation fallback)
+RUN npx prisma generate || echo "Prisma generate failed - will generate at runtime"
+
+# Next will handle the TS compilation and bundle code for production
+RUN npm run build
+
+# Remove development dependencies to minimize size
+RUN npm prune --production
+
+################# Runner #################
+FROM node:18-alpine AS runner
+WORKDIR /app
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Add packages for security and diagnostics
+RUN apk add --no-cache curl dumb-init
+
+# Create a non-root user with explicit UID/GID for security
+RUN addgroup --system --gid 1001 nodejs \
+    && adduser --system --uid 1001 nextjs
+
+# Copy only production necessary files from builder and set ownership
+COPY --from=build --chown=nextjs:nodejs /app/package.json /app/package-lock.json* ./
+COPY --from=build --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=build --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=build --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=build --chown=nextjs:nodejs /app/next.config.* ./
+COPY --from=build --chown=nextjs:nodejs /app/src ./src
+COPY --from=build --chown=nextjs:nodejs /app/scripts/startup.sh ./scripts/startup.sh
+
+# Set read and execute permissions for node_modules and .next (not write)for security
+RUN chmod -R 500 /app/node_modules && chmod -R 500 /app/.next
+
+# Switch to non-root user
+USER nextjs
+
+EXPOSE 3000
+
+# Use dumb-init as PID 1 to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["./scripts/startup.sh"]

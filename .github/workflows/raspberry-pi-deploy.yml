@@ -1,0 +1,332 @@
+# Deploy to Raspberry Pi via Cloudflare Tunnel
+name: Deploy to Raspberry Pi
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy'
+        required: false # allows for manual re-deployment
+        default: 'latest'
+
+
+jobs:
+  lint:
+    name: Lint the source code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint
+
+  typecheck:
+    name: Type check the source code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run type checking
+        run: npm run typecheck
+
+  test:
+    name: Run tests on the source code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test
+
+  deploy:
+    name: Deploy to Raspberry Pi
+    needs: [test, lint, typecheck]
+    runs-on: ubuntu-latest
+    # only deploy on push, not on pull request
+    # if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install cloudflared on GitHub runner
+        run: |
+          # Download and install cloudflared on the GitHub runner
+          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+          cloudflared --version
+
+      - name: Install private SSH key on GitHub runner to enable SSH connection to Raspberry Pi
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          if_key_exists: fail # Replace with "replace" if you want to replace it
+
+      - name: Copy production files to Raspberry Pi
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
+        run: |
+          echo "Copying production configuration files to Raspberry Pi"
+
+          # Ensure target directories exist on Pi
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME \
+              "mkdir -p ~/balanced-app/src/services ~/balanced-app/scripts"
+
+          # Copy essential configuration files individually for reliability
+          echo "Copying compose.prod.yml..."
+          scp -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              compose.prod.yml \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying compose.prod.yml"
+
+          echo "Copying Dockerfile.prod..."
+          scp -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              Dockerfile.prod \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying Dockerfile.prod"
+
+          echo "Copying package files..."
+          scp -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              package.json package-lock.json \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying package files"
+
+          echo "Copying source code..."
+          scp -r -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              src/ \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying source code"
+
+          echo "Copying Prisma schema..."
+          scp -r -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              prisma/ \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying Prisma schema"
+
+          echo "Copying configuration files..."
+          scp -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              next.config.ts tsconfig.json eslint.config.mjs \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying configuration files"
+
+          echo "Creating .env.production from secrets..."
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME \
+              "echo '# Database' > ~/balanced-app/.env.production && \
+               echo 'DB_USER=${{ secrets.DB_USER }}' >> ~/balanced-app/.env.production && \
+               echo 'DB_PASSWORD=${{ secrets.DB_PASSWORD }}' >> ~/balanced-app/.env.production && \
+               echo 'DB_NAME=${{ secrets.DB_NAME }}' >> ~/balanced-app/.env.production && \
+               echo 'DB_PORT=5432' >> ~/balanced-app/.env.production && \
+               echo 'DB_HOST=db' >> ~/balanced-app/.env.production && \
+               echo '' >> ~/balanced-app/.env.production && \
+               echo '# Database URL: @db as that is the service name in compose.prod.yml' >> ~/balanced-app/.env.production && \
+               echo 'DATABASE_URL=${{ secrets.DATABASE_URL }}' >> ~/balanced-app/.env.production && \
+               echo '' >> ~/balanced-app/.env.production && \
+               echo '# Application' >> ~/balanced-app/.env.production && \
+               echo 'NODE_ENV=production' >> ~/balanced-app/.env.production && \
+               echo 'ENVIRONMENT_FILE=production' >> ~/balanced-app/.env.production"
+          echo "Complete: Creating .env.production from secrets"
+
+          echo "Verifying .env.production file..."
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME \
+              "echo 'File exists:' && ls -la ~/balanced-app/.env.production && \
+               echo 'File contents (masked):' && \
+               sed 's/PASSWORD=.*/PASSWORD=***MASKED***/g; s/DATABASE_URL=.*/DATABASE_URL=***MASKED***/g' ~/balanced-app/.env.production"
+          echo "Complete: Verifying .env.production file"
+
+          # Copy nginx configuration directory
+          echo "Copying nginx configuration..."
+          scp -r -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              src/services/nginx/ \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/src/services/
+          echo "Complete: Copying nginx configuration"
+
+          # Copy scripts directory (contains deployment scripts)
+          echo "Copying deployment scripts..."
+          scp -r -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              scripts/ \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME:~/balanced-app/
+          echo "Complete: Copying deployment scripts"
+
+          echo "Production files and scripts copied successfully"
+
+      - name: Deploy with Docker Compose
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
+        run: |
+          echo "Starting Docker Compose deployment"
+
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+
+            # Navigate to deployment directory
+            cd ~/balanced-app
+
+            # Create required directories
+            mkdir -p certs nginx-logs backups static-html
+
+            # Run blue-green deployment script
+            chmod +x scripts/deploy-blue-green.sh
+            ./scripts/deploy-blue-green.sh
+          "
+
+      - name: Health check
+        id: health_check
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
+        run: |
+          echo "Starting container health check"
+
+          # Verify the Docker Compose services are healthy
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+
+            cd ~/balanced-app
+
+            # Run health check script
+            chmod +x scripts/health-check.sh
+            ./scripts/health-check.sh
+          "
+          echo "Complete: Health check"
+
+      - name: Finalize deployment
+        if: success() && steps.health_check.outcome == 'success'
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
+        run: |
+          echo "Finalizing successful deployment"
+
+          # Finalize Docker Compose deployment
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+
+            cd ~/balanced-app
+
+            # Detect Docker Compose version (same logic as deployment script)
+            if docker compose version >/dev/null 2>&1; then
+                DOCKER_COMPOSE='docker compose'
+                echo 'Using docker compose (modern)'
+            elif docker-compose --version >/dev/null 2>&1; then
+                DOCKER_COMPOSE='docker-compose'
+                echo 'Using docker-compose (legacy)'
+            else
+                echo 'Error: Neither docker compose nor docker-compose is available'
+                exit 1
+            fi
+
+            echo 'Verifying final deployment status...'
+            $DOCKER_COMPOSE --file compose.prod.yml ps
+
+            echo 'Checking service health...'
+            if $DOCKER_COMPOSE --file compose.prod.yml ps | grep -q 'Up'; then
+              echo 'SUCCESS: DEPLOYMENT SUCCESSFUL'
+              echo 'All services are running'
+              echo 'Application is accessible via nginx proxy'
+            else
+              echo 'WARNING: Some services may not be running properly'
+              $DOCKER_COMPOSE --file compose.prod.yml logs --tail=20
+            fi
+          "
+          echo "Complete: Finalize deployment"
+
+      - name: Clean-up
+        if: always() # Run clean-up even if previous steps fail
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
+        run: |
+          echo "Performing post-deployment clean-up"
+
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname %h" \
+              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+            echo 'Running comprehensive post-deployment cleanup...'
+
+            cd ~/balanced-app
+
+            echo 'Host filesystem should be clean - build artifacts only exist inside containers'
+            # Note: node_modules, .next, dist, build are created inside containers, not on host
+
+            echo 'Removing temporary files...'
+            # Remove deployment temporary files
+            rm -f /tmp/balanced-* 2>/dev/null || true
+            rm -f /tmp/deploy_* 2>/dev/null || true
+            rm -f /tmp/*balanced* 2>/dev/null || true
+
+            echo 'Comprehensive Docker cleanup...'
+            # Clean up Docker resources now that deployment is complete
+            docker image prune -f  # Remove dangling images
+            docker container prune -f  # Remove stopped containers
+            docker volume prune -f  # Remove unused volumes (preserves active ones)
+            docker network prune -f  # Remove unused networks
+            docker system prune -f  # General Docker cleanup
+
+            echo 'Cleaning up old environment files...'
+            # Remove development environment files (keep production)
+            rm -f .env.local 2>/dev/null || true
+            rm -f .env.development 2>/dev/null || true
+            rm -f .env.test 2>/dev/null || true
+
+            echo 'System maintenance...'
+            # Clean up system logs (keep last 7 days)
+            sudo journalctl --vacuum-time=7d 2>/dev/null || true
+
+            echo 'Final disk space check:'
+            df -h
+
+            echo 'SUCCESS: Comprehensive cleanup completed successfully'
+          "
