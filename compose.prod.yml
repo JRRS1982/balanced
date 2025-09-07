@@ -1,0 +1,166 @@
+# Production Blue-Green Docker Compose
+
+services:
+  # Blue Environment
+  app-blue:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: balanced_app_blue
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - APP_COLOR=blue
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+    env_file:
+      - .env.production
+    ports:
+      - '3001:3000'  # Blue runs on port 3001
+    volumes:
+      # No source code mounting in production
+      - app_uploads:/app/uploads  # If you have file uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    command: sh -c "npx prisma migrate deploy && npm start"
+    networks:
+      - app-network
+
+  # Green Environment
+  app-green:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: balanced_app_green
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - APP_COLOR=green
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+    env_file:
+      - .env.production
+    ports:
+      - '3002:3000'  # Green runs on port 3002
+    volumes:
+      - app_uploads:/app/uploads  # Shared uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    command: sh -c "npx prisma migrate deploy && npm start"
+    networks:
+      - app-network
+
+  # Single Database (shared between blue/green)
+  db:
+    container_name: balanced_db_prod
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --lc-collate=C --lc-ctype=C'
+    env_file:
+      - .env.production
+    ports:
+      - '${DB_PORT:-5432}:5432'
+    volumes:
+      # Production persistent storage
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/backups:/backups
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_NAME}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - app-network
+
+  # Database backup service - creates daily backups with cleanup
+  backup:
+    container_name: balanced_backup_prod
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    volumes:
+      - ./db/backups:/backups
+      - ./scripts:/app/scripts:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["/app/scripts/backup-init.sh"]
+    networks:
+      - app-network
+
+  # Nginx Load Balancer
+  nginx:
+    image: nginx:alpine
+    container_name: balanced_nginx_prod
+    restart: unless-stopped
+    ports:
+      - '80:80' # Main HTTP traffic (Internet (HTTPS) → Cloudflare Edge → Cloudflare Tunnel → Raspberry Pi:80 → nginx:80 → app:3000)
+      - '8080:8080'  # External health check port (Raspberry Pi:8080 → Nginx:8080 → app health endpoints)
+    volumes:
+      - ./src/services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./src/services/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
+      - ./src/services/nginx/logs:/var/log/nginx
+      - ./static-html:/usr/share/nginx/html:ro
+    depends_on:
+      - app-blue
+      - app-green
+    healthcheck:
+      # Internal health check (nginx:80 → app:3000/api/health)
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - app-network
+
+  studio:
+    container_name: balanced_studio_prod
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - ./prisma:/app/prisma:ro
+      - ./package.json:/app/package.json:ro
+      - ./package-lock.json:/app/package-lock.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+    env_file:
+      - .env.production
+    command: sh -c "npm install prisma && npx prisma studio --port 5555 --hostname 0.0.0.0"
+    ports:
+      - '5555:5555'
+    profiles:
+      - debug  # Only start with: docker-compose --profile debug up
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+    name: balanced_postgres_prod_data
+  app_uploads:
+    name: balanced_app_uploads
+
+networks:
+  app-network:
+    driver: bridge
