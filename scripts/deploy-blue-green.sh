@@ -6,6 +6,36 @@ set -e
 
 echo '🔄 Starting Blue-Green Deployment...'
 
+# Function to clean up old containers
+cleanup_containers() {
+    echo '🧹 Cleaning up old containers...'
+    
+    # Stop and remove any running containers from this project
+    if [ -f compose.prod.yml ]; then
+        echo '🔄 Stopping and removing existing containers...'
+        $DOCKER_COMPOSE --file compose.prod.yml down --remove-orphans --timeout 30 2>/dev/null || true
+    fi
+    
+    # Find and remove any nginx containers
+    echo '🔍 Looking for running nginx containers...'
+    RUNNING_CONTAINERS=$(docker ps -a -q --filter "name=nginx" 2>/dev/null || true)
+    
+    if [ -n "$RUNNING_CONTAINERS" ]; then
+        echo '🛑 Stopping and removing nginx containers...'
+        docker stop $RUNNING_CONTAINERS 2>/dev/null || true
+        docker rm -f $RUNNING_CONTAINERS 2>/dev/null || true
+    fi
+    
+    # Check if port 80 is still in use by a non-container process
+    if command -v ss >/dev/null && ss -tulpn | grep -q ':80 '; then
+        echo '⚠️  Warning: Port 80 is still in use by a non-container process'
+        echo '   This might cause issues with nginx startup'
+    fi
+    
+    # Small delay to ensure cleanup completes
+    sleep 2
+}
+
 # Check Docker Compose version and set command
 if docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE="docker compose"
@@ -51,9 +81,9 @@ echo "🎯 Deploying to: $TARGET_ENV"
 echo '🔨 Building latest images...'
 $DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production build
 
-# Start infrastructure services (db, nginx, backup) if not running
-echo '🏗️  Ensuring infrastructure services are running...'
-$DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production up -d db nginx backup
+# Start only the database first
+echo '🏗️  Starting database services...'
+$DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production up -d db backup
 
 # Debug: Check environment file
 echo '🔍 Checking environment configuration...'
@@ -70,10 +100,25 @@ fi
 echo '⏳ Waiting for database to be ready...'
 sleep 10
 
+# Start nginx after database is ready (only if not already running)
+if ! docker ps --format '{{.Names}}' | grep -q 'nginx'; then
+    echo '🌐 Starting nginx (first run)...'
+    $DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production up -d --force-recreate --remove-orphans nginx
+else
+    echo '🔄 Nginx is already running, ensuring configuration is up to date...'
+    # Just ensure nginx is running with latest config without restarting
+    $DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production up -d nginx
+    
+    # Reload nginx to apply any config changes without downtime
+    $DOCKER_COMPOSE --file compose.prod.yml exec nginx nginx -s reload 2>/dev/null || \
+        echo '⚠️  Could not reload nginx (container might be starting up)'
+fi
+
 # Run database migrations
 echo '🗄️  Running database migrations...'
 $DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production run --rm app-blue npx prisma migrate deploy || {
     echo '⚠️  Migration failed, but continuing deployment...'
+    cleanup_containers
 }
 
 # Deploy to target environment
