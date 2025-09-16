@@ -205,10 +205,10 @@ jobs:
             echo "=== Current container status ==="
             docker ps -a
             echo "=== Container logs ==="
-            docker logs app-blue --tail 100 2>&1 || true
-            docker logs app-green --tail 100 2>&1 || true
+            docker logs balanced_app-blue --tail 100 2>&1 || true
+            docker logs balanced_app-green --tail 100 2>&1 || true
             echo "=== Nginx error logs ==="
-            docker exec nginx cat /var/log/nginx/error.log 2>&1 || true
+            docker exec balanced_nginx_prod cat /var/log/nginx/error.log 2>&1 || true
             exit 1
           }
 

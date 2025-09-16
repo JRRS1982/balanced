@@ -44,7 +44,7 @@ RUN npx prisma generate || echo "Prisma generate failed - will generate at runti
 RUN npm run build
 
 # Remove development dependencies to minimize size
-RUN npm prune --production
+RUN npm prune --omit=dev
 
 ################# Runner #################
 FROM node:18-alpine AS runner
