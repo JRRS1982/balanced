@@ -266,13 +266,25 @@ test_environment_health() {
 # MAIN DEPLOYMENT FLOW
 ################################################################################
 
-# Step 1: Build latest images (no downtime)
-echo '🔨 Building latest images...'
-$DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production build
+# Step 1: Build target environment image (no downtime)
+echo "🔨 Building $TARGET_ENV environment image..."
+$DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production build $TARGET_CONTAINER
 
-# Step 2: Start database services
-echo '🏗️  Starting database services...'
-$DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production up -d db backup
+# Step 2: Ensure database services are running
+echo '🏗️  Ensuring database services are running...'
+if ! docker ps --format '{{.Names}}' | grep -q 'balanced_db_prod'; then
+    echo '📦 Starting database service...'
+    $DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production up -d db
+else
+    echo '✅ Database service already running'
+fi
+
+if ! docker ps --format '{{.Names}}' | grep -q 'balanced_backup_prod'; then
+    echo '💾 Starting backup service...'
+    $DOCKER_COMPOSE --file compose.prod.yml --env-file .env.production up -d backup
+else
+    echo '✅ Backup service already running'
+fi
 
 # Step 3: Check environment configuration
 echo '🔍 Checking environment configuration...'
