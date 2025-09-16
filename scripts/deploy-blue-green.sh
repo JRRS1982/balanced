@@ -35,8 +35,6 @@ elif grep -q 'server app-blue:3000 weight=1' src/services/nginx/upstream.conf; t
     CURRENT_ACTIVE='blue'
 else
     echo "⚠️  Warning: Neither blue nor green appears to be active in upstream.conf"
-    echo "   Defaulting to blue as current active environment"
-    CURRENT_ACTIVE='blue'
 fi
 
 # Set target environment (opposite of current)
@@ -44,10 +42,16 @@ if [ "$CURRENT_ACTIVE" = "blue" ]; then
     TARGET_ENV='green'
     TARGET_CONTAINER='app-green'
     CURRENT_CONTAINER='app-blue'
-else
+elif [ "$CURRENT_ACTIVE" = "green" ]; then
     TARGET_ENV='blue'
     TARGET_CONTAINER='app-blue'
     CURRENT_CONTAINER='app-green'
+elif [ "$CURRENT_ACTIVE" = "undefined" ]; then
+    echo "⚠️  Warning: Neither blue nor green appears to be active in upstream.conf, defaulting to blue as the initial active environment"
+    CURRENT_ACTIVE='blue'
+    TARGET_ENV='green'
+    TARGET_CONTAINER='app-green'
+    CURRENT_CONTAINER='app-blue'
 fi
 
 echo "📍 Current active: $CURRENT_ACTIVE"
