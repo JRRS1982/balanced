@@ -202,23 +202,90 @@ jobs:
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
           PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
+        timeout-minutes: 30  # Set overall timeout for this step
         run: |
-          echo "Starting Docker Compose deployment"
+          echo "🚀 Starting Docker Compose deployment..."
+          echo "Connecting to: $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME"
 
-          ssh -o StrictHostKeyChecking=accept-new \
-              -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+          # Create a temporary script on the remote server
+          DEPLOY_SCRIPT=$(cat << 'EOL'
+          #!/bin/bash
+          set -e
 
-            # Navigate to deployment directory
-            cd ~/balanced-app
+          # Debug info
+          echo "=== Deployment started at $(date) ==="
+          echo "Current directory: $(pwd)"
+          echo "Environment:"
+          env | sort
 
-            # Create required directories
-            mkdir -p certs nginx-logs backups static-html
+          # Navigate to deployment directory
+          cd ~/balanced-app || { echo "❌ Failed to cd to ~/balanced-app"; exit 1; }
 
-            # Run blue-green deployment script
-            chmod +x scripts/deploy-blue-green.sh
-            ./scripts/deploy-blue-green.sh
-          "
+          # Create required directories
+          echo "📂 Creating required directories..."
+          mkdir -p certs nginx-logs backups static-html
+
+          # Verify files exist
+          echo "🔍 Verifying deployment files..."
+          ls -la
+
+          # Make script executable and run with timeout
+          echo "🚀 Starting blue-green deployment..."
+          chmod +x scripts/deploy-blue-green.sh
+          timeout 20m ./scripts/deploy-blue-green.sh || {
+            echo "❌ Deployment script failed or timed out after 20 minutes"
+            echo "=== Current container status ==="
+            docker ps -a
+            echo "=== Container logs ==="
+            docker logs app-blue --tail 100 2>&1 || true
+            docker logs app-green --tail 100 2>&1 || true
+            echo "=== Nginx error logs ==="
+            docker exec nginx cat /var/log/nginx/error.log 2>&1 || true
+            exit 1
+          }
+
+          echo "✅ Deployment completed successfully!"
+          EOL
+          )
+
+          # Function to run SSH with retries
+          function run_ssh_with_retry() {
+            local max_attempts=3
+            local attempt=0
+            local exit_code=1
+
+            while [ $attempt -lt $max_attempts ]; do
+              attempt=$((attempt+1))
+              echo "🔌 SSH attempt $attempt of $max_attempts..."
+
+              # Run SSH with keepalive and connection timeout
+              ssh -o ConnectTimeout=30 \
+                  -o ServerAliveInterval=60 \
+                  -o ServerAliveCountMax=5 \
+                  -o StrictHostKeyChecking=accept-new \
+                  -o ProxyCommand="cloudflared access ssh --hostname %h" \
+                  $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "$DEPLOY_SCRIPT" && {
+                exit_code=0
+                break
+              }
+
+              exit_code=$?
+              echo "⚠️  SSH attempt $attempt failed with code $exit_code"
+
+              if [ $attempt -lt $max_attempts ]; then
+                echo "🔄 Retrying in 10 seconds..."
+                sleep 10
+              fi
+            done
+
+            return $exit_code
+          }
+
+          # Execute the SSH function
+          if ! run_ssh_with_retry; then
+            echo "❌ All SSH attempts failed"
+            exit 1
+          fi
 
       - name: Health check
         id: health_check

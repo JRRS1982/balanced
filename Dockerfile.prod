@@ -24,6 +24,7 @@ WORKDIR /app
 
 # Set Node environment to production during build for optimizations
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
