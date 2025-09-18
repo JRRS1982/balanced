@@ -13,7 +13,6 @@ on:
         required: false # allows for manual re-deployment
         default: 'latest'
 
-
 jobs:
   test-and-checks:
     name: Run tests and checks
@@ -170,7 +169,7 @@ jobs:
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
           PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
-        timeout-minutes: 30  # Set overall timeout for this step
+        timeout-minutes: 30 # Set overall timeout for this step
         run: |
           echo "🚀 Starting Docker Compose deployment..."
           echo "Connecting to: $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME"
