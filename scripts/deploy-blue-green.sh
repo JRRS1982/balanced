@@ -73,7 +73,7 @@ cleanup_containers() {
 
     # Find and remove any nginx containers
     echo '🔍 Looking for running nginx containers...'
-    RUNNING_CONTAINERS=$(docker ps -a -q --filter "name=nginx" 2>/dev/null || true)
+    RUNNING_CONTAINERS=$(docker ps -a -q --filter "name=balanced_nginx_prod" 2>/dev/null || true)
 
     if [ -n "$RUNNING_CONTAINERS" ]; then
         echo '🛑 Stopping and removing nginx containers...'
@@ -179,7 +179,7 @@ cleanup_nginx() {
 # Main nginx management function
 manage_nginx() {
     # Check if nginx is already running
-    if ! docker ps --format '{{.Names}}' | grep -q 'nginx'; then
+    if ! docker ps --format '{{.Names}}' | grep -q 'balanced_nginx_prod'; then
         # First time startup
         manage_nginx_first_time
     else
