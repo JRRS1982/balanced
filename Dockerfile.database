@@ -1,0 +1,17 @@
+# Dockerfile.database - PostgreSQL with custom configuration
+FROM postgres:16-alpine
+
+# Set environment variables for initialization
+ENV POSTGRES_INITDB_ARGS="--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+
+# Create backup directory
+RUN mkdir -p /backups && chown postgres:postgres /backups
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=30s \
+    CMD pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-balanced}
+
+# Expose PostgreSQL port
+EXPOSE 5432
+
+# Use default PostgreSQL entrypoint

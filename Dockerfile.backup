@@ -1,0 +1,21 @@
+# Dockerfile.backup - Database backup service
+FROM postgres:16-alpine
+
+# Install cron for scheduled backups
+RUN apk add --no-cache dcron
+
+# Copy backup scripts
+COPY scripts/backup-init.sh /app/scripts/backup-init.sh
+COPY scripts/backup.sh /app/scripts/backup.sh
+
+# Make scripts executable
+RUN chmod +x /app/scripts/backup-init.sh /app/scripts/backup.sh
+
+# Create backup directory
+RUN mkdir -p /backups && chown postgres:postgres /backups
+
+# Set working directory
+WORKDIR /app
+
+# Run backup initialization script
+CMD ["/app/scripts/backup-init.sh"]

@@ -1,0 +1,22 @@
+# Dockerfile.nginx - Custom Nginx with configuration
+FROM nginx:alpine
+
+# Copy nginx configuration files
+COPY src/services/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY src/services/nginx/upstream.conf /etc/nginx/conf.d/upstream.conf
+
+# Copy static HTML files
+COPY static-html/nginx /usr/share/nginx/html
+
+# Create log directory
+RUN mkdir -p /var/log/nginx
+
+# Expose ports
+EXPOSE 80 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:80/api/health || exit 1
+
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]

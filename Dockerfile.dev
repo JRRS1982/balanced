@@ -2,7 +2,7 @@
 
 ################# Dependencies #################
 # Use a minimal base image to reduce the size of the final image
-FROM node:18-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 
 # Copy package files and Prisma schema first
@@ -13,7 +13,7 @@ COPY prisma ./prisma/
 RUN npm install
 
 ################# Build #################
-FROM node:18-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 
 # Copy dependencies and source code
@@ -22,11 +22,14 @@ COPY . .
 
 # Generate Prisma client
 RUN npx prisma generate
+
+# Skip static generation for faster build times and as pages may need db access
+ENV NEXT_SHOULD_SKIP_BUILD_STATIC_GENERATION=true
 RUN npm run build
 
 ################# Deploy #################
 # Create and set permissions for Next.js
-FROM node:18-alpine AS deploy
+FROM node:22-alpine AS deploy
 WORKDIR /app
 
 # Copy package files and node_modules
