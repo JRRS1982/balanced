@@ -65,24 +65,61 @@ The deployment process is automated via GitHub Actions, which;
 
 The following secrets must be configured in your GitHub repository:
 
-- `DOCKERHUB_USERNAME`: Your Docker Hub username
-- `DOCKERHUB_TOKEN`: Your Docker Hub access token
-- `SSH_PRIVATE_KEY`: SSH key to access your Raspberry Pi
-- `SSH_KNOWN_HOSTS`: SSH fingerprint of your Raspberry Pi
-- `PI_USERNAME`: Username for Raspberry Pi SSH login
-- `PI_HOST`: IP address or hostname of your Raspberry Pi
-- `PI_CLOUDFLARE_HOSTNAME`: Cloudflare hostname for your Raspberry Pi i.e. `ssh.balanced.money`
-- `CLOUDFLARE_ACCESS_CLIENT_ID`: Cloudflare Access Client ID for your Raspberry Pi
-- `CLOUDFLARE_ACCESS_CLIENT_SECRET`: Cloudflare Access Client Secret for your Raspberry Pi
-- `DATABASE_URL`: PostgreSQL connection string
-- `NEXTAUTH_SECRET`: Random string for JWT encryption
-- `NEXTAUTH_URL`: Public-facing URL of your application (e.g., <https://balanced.money>)
+##### Docker Hub (Image Registry)
 
-To add these secrets:
+- `DOCKERHUB_USERNAME`: Your Docker Hub username
+  - Example: `jsmith82`
+- `DOCKERHUB_TOKEN`: Docker Hub personal access token (NOT your password)
+  - Example: `dckr_pat_1234567890abcdefghijklmnopqr`
+  - Get from: [Docker Hub → Account Settings → Security → New Access Token](https://hub.docker.com/settings/security)
+
+##### Raspberry Pi Access
+
+- `PI_USERNAME`: SSH username on your Raspberry Pi
+  - Example: `pi` or `jeremy-smith`
+- `PI_SSH_HOSTNAME`: Cloudflare Tunnel hostname for SSH access
+  - Example: `ssh.balanced.money`
+  - This is the hostname protected by Cloudflare Access
+- `SSH_PRIVATE_KEY`: Private SSH key for authenticating to your Pi
+  - Example (full key content):
+
+    ```text
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz
+    ... (many lines)
+    -----END OPENSSH PRIVATE KEY-----
+    ```
+
+  - Generate with: `ssh-keygen -t ed25519 -C "github-actions-balanced"`
+
+##### Cloudflare Access (Service Token)
+
+- `CLOUDFLARE_ACCESS_CLIENT_ID`: Service token client ID
+  - Example: `a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6`
+  - Get from: [Cloudflare Zero Trust → Access → Service Auth → Create Service Token](https://one.dash.cloudflare.com/)
+- `CLOUDFLARE_ACCESS_CLIENT_SECRET`: Service token secret
+  - Example: `1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v3w4x5y6z7`
+  - Only shown once when creating the service token
+
+##### Database Configuration
+
+- `DB_USER`: PostgreSQL database username
+  - Example: `balanced_user`
+- `DB_PASSWORD`: PostgreSQL database password (use strong, random password)
+  - Example: `Xk9mP#4vL@2nQ!8wR$6tY`
+  - Generate with: `openssl rand -base64 32`
+- `DB_NAME`: PostgreSQL database name
+  - Example: `balanced`
+- `DATABASE_URL`: Full PostgreSQL connection string
+  - Example: `postgresql://balanced_user:Xk9mP#4vL@2nQ!8wR$6tY@balanced_db_prod:5432/balanced`
+  - Format: `postgresql://[DB_USER]:[DB_PASSWORD]@balanced_db_prod:5432/[DB_NAME]`
+
+**To add these secrets:**
 
 1. Go to your GitHub repository
 2. Click on "Settings" → "Secrets and variables" → "Actions"
-3. Use "New repository secret" to add each item above
+3. Click "New repository secret" and add each item above
+4. Paste the exact value (no quotes or extra spaces)
 
 ### Code Deployment Workflow
 

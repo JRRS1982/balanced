@@ -175,7 +175,6 @@ jobs:
 
       - name: Install cloudflared on GitHub runner
         run: |
-          # Download and install cloudflared on the GitHub runner
           curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb
           cloudflared --version
@@ -184,24 +183,15 @@ jobs:
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
-          if_key_exists: fail # Replace with "replace" if you want to replace it
+          if_key_exists: replace
 
-      - name: Deploy to Raspberry Pi
+      - name: Test SSH connection to Raspberry Pi via Cloudflare Tunnel
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          # SSH hostname protected by Cloudflare Access (e.g., ssh.example.com)
           PI_SSH_HOSTNAME: ${{ secrets.PI_SSH_HOSTNAME }}
-          # Cloudflare Access Service Token credentials
           CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
           CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
-        timeout-minutes: 30
         run: |
-          echo "🚀 Starting multi-service Docker deployment..."
-          echo "Connecting to: $PI_USERNAME@$PI_SSH_HOSTNAME"
-
-          # Test SSH connection first
-          echo "🔍 Testing SSH connection..."
           ssh -o ConnectTimeout=30 \
               -o ServerAliveInterval=10 \
               -o ServerAliveCountMax=3 \
@@ -212,334 +202,125 @@ jobs:
             exit 1
           }
 
-          # Get the Docker image tags from build step - this is better than pulling from Dockerhub as it ensures we use the image which was just built - no race condition
+      - name: Copy deployment files to Raspberry Pi
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_SSH_HOSTNAME: ${{ secrets.PI_SSH_HOSTNAME }}
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
+        run: |
+          echo "📂 Copying deployment files to Raspberry Pi..."
+
+          # Create deployment directory structure on Pi
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME" '
+            mkdir -p ~/balanced-app/scripts
+            mkdir -p ~/balanced-app/src/services/nginx
+            mkdir -p ~/balanced-app/static-html/nginx
+            mkdir -p ~/balanced-app/db/backups
+          '
+
+          # Copy deployment scripts
+          echo "📝 Copying scripts..."
+          scp -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              scripts/deploy-blue-green.sh \
+              scripts/health-check.sh \
+              scripts/backup.sh \
+              scripts/backup-init.sh \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME:~/balanced-app/scripts/"
+
+          # Copy nginx configuration
+          echo "🌐 Copying nginx configuration..."
+          scp -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              src/services/nginx/nginx.conf \
+              src/services/nginx/upstream.conf \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME:~/balanced-app/src/services/nginx/"
+
+          # Copy static HTML files
+          echo "📄 Copying static HTML files..."
+          scp -r -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              static-html/nginx/* \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME:~/balanced-app/static-html/nginx/" || echo "No static HTML files to copy"
+
+          # Make scripts executable
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME" '
+            chmod +x ~/balanced-app/scripts/*.sh
+          '
+
+          echo "✅ Files copied successfully"
+
+      - name: Create environment configuration on Pi
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_SSH_HOSTNAME: ${{ secrets.PI_SSH_HOSTNAME }}
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
+        run: |
+          echo "📝 Creating .env.production on Raspberry Pi..."
+
+          ssh -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME" '
+            rm -f ~/balanced-app/.env.production
+            echo "DB_USER=${{ secrets.DB_USER }}" >> ~/balanced-app/.env.production
+            echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> ~/balanced-app/.env.production
+            echo "DB_NAME=${{ secrets.DB_NAME }}" >> ~/balanced-app/.env.production
+            echo "DB_PORT=5432" >> ~/balanced-app/.env.production
+            echo "DB_HOST=balanced_db_prod" >> ~/balanced-app/.env.production
+            echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> ~/balanced-app/.env.production
+            echo "NODE_ENV=production" >> ~/balanced-app/.env.production
+            echo "ENVIRONMENT_FILE=production" >> ~/balanced-app/.env.production
+            echo "APP_IMAGE=${{ needs.build.outputs.app-image }}" >> ~/balanced-app/.env.production
+            echo "NGINX_IMAGE=${{ needs.build.outputs.nginx-image }}" >> ~/balanced-app/.env.production
+            echo "DB_IMAGE=${{ needs.build.outputs.db-image }}" >> ~/balanced-app/.env.production
+            echo "BACKUP_IMAGE=${{ needs.build.outputs.backup-image }}" >> ~/balanced-app/.env.production
+          '
+
+          echo "✅ Environment configuration created"
+
+      - name: Deploy to Raspberry Pi
+        env:
+          PI_USERNAME: ${{ secrets.PI_USERNAME }}
+          PI_SSH_HOSTNAME: ${{ secrets.PI_SSH_HOSTNAME }}
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
+        timeout-minutes: 30
+        run: |
+          echo "🚀 Starting blue-green deployment..."
+          echo "Connecting to: $PI_USERNAME@$PI_SSH_HOSTNAME"
+
+          # Get the Docker image tags from build step
           APP_IMAGE="${{ needs.build.outputs.app-image }}"
           NGINX_IMAGE="${{ needs.build.outputs.nginx-image }}"
           DB_IMAGE="${{ needs.build.outputs.db-image }}"
           BACKUP_IMAGE="${{ needs.build.outputs.backup-image }}"
 
-          echo "🔍 Analyzing current deployment state..."
-
-          # Check what's currently running via SSH
-          CURRENT_STATE=$(ssh -o ConnectTimeout=30 \
-              -o ServerAliveInterval=10 \
-              -o ServerAliveCountMax=3 \
-              -o StrictHostKeyChecking=accept-new \
-              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
-              "$PI_USERNAME@$PI_SSH_HOSTNAME" '
-              cd ~/balanced-app 2>/dev/null || { echo "FIRST_DEPLOY"; exit 0; }
-
-              # Check which environment is active
-              if [ -f "src/services/nginx/upstream.conf" ]; then
-                  if grep -q "server balanced_app_blue:3000 weight=1" src/services/nginx/upstream.conf 2>/dev/null; then
-                      echo "CURRENT_ACTIVE=blue"
-                  elif grep -q "server balanced_app_green:3000 weight=1" src/services/nginx/upstream.conf 2>/dev/null; then
-                      echo "CURRENT_ACTIVE=green"
-                  else
-                      echo "CURRENT_ACTIVE=none"
-                  fi
-              else
-                  echo "CURRENT_ACTIVE=none"
-              fi
-
-              # Get current running containers and their images
-              echo "RUNNING_CONTAINERS:"
-              docker ps --filter "name=balanced_app_" --format "{{.Names}}:{{.Image}}" 2>/dev/null || echo "none"
-          ')
-
-          echo "📊 Current deployment state:"
-          echo "$CURRENT_STATE"
-
-          # Parse the current state
-          if echo "$CURRENT_STATE" | grep -q "FIRST_DEPLOY"; then
-              DEPLOYMENT_TYPE="INITIAL"
-              CURRENT_ACTIVE="none"
-              TARGET_ENV="blue"
-              echo "🆕 First deployment detected - will deploy to blue environment"
-          else
-              CURRENT_ACTIVE=$(echo "$CURRENT_STATE" | grep "CURRENT_ACTIVE=" | cut -d'=' -f2)
-              if [ "$CURRENT_ACTIVE" = "blue" ]; then
-                  TARGET_ENV="green"
-                  DEPLOYMENT_TYPE="BLUE_GREEN"
-                  echo "🔄 Blue-green deployment: blue → green"
-              elif [ "$CURRENT_ACTIVE" = "green" ]; then
-                  TARGET_ENV="blue"
-                  DEPLOYMENT_TYPE="GREEN_BLUE"
-                  echo "🔄 Blue-green deployment: green → blue"
-              else
-                  TARGET_ENV="blue"
-                  DEPLOYMENT_TYPE="RECOVERY"
-                  echo "🔧 Recovery deployment - no active environment detected, deploying to blue"
-              fi
-          fi
-
-          echo ""
-          echo "📦 New images to deploy:"
+          echo "📦 Deploying images:"
           echo "  App: $APP_IMAGE"
           echo "  Nginx: $NGINX_IMAGE"
           echo "  Database: $DB_IMAGE"
           echo "  Backup: $BACKUP_IMAGE"
-          echo ""
-          echo "🎯 Target environment: $TARGET_ENV"
-          echo "📋 Deployment type: $DEPLOYMENT_TYPE"
 
-          # Create deployment script
-          DEPLOY_SCRIPT=$(cat << EOL
-          #!/bin/bash
-          set -e
-
-          # Set Docker images from GitHub Actions
-          export APP_IMAGE="$APP_IMAGE"
-          export NGINX_IMAGE="$NGINX_IMAGE"
-          export DB_IMAGE="$DB_IMAGE"
-          export BACKUP_IMAGE="$BACKUP_IMAGE"
-
-          echo "🐳 Using Docker images:"
-          echo "  App: \$APP_IMAGE"
-          echo "  Nginx: \$NGINX_IMAGE"
-          echo "  Database: \$DB_IMAGE"
-          echo "  Backup: \$BACKUP_IMAGE"
-
-          # Debug info
-          echo "=== Deployment started at \$(date) ==="
-          echo "Current directory: \$(pwd)"
-
-          # Navigate to deployment directory
-          cd ~/balanced-app || { echo "❌ Failed to cd to ~/balanced-app"; exit 1; }
-
-          # Create required directories
-          echo "📂 Creating required directories..."
-          mkdir -p certs nginx-logs backups static-html db/init src/services/nginx
-
-          # Create .env.production from secrets
-          echo "📝 Creating .env.production..."
-          cat > .env.production << ENV_EOF
-          # Database
-          DB_USER=${{ secrets.DB_USER }}
-          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-          DB_NAME=${{ secrets.DB_NAME }}
-          DB_PORT=5432
-          DB_HOST=balanced_db_prod
-
-          # Database URL
-          DATABASE_URL=${{ secrets.DATABASE_URL }}
-
-          # Application
-          NODE_ENV=production
-          ENVIRONMENT_FILE=production
-          ENV_EOF
-
-          # Create basic nginx configuration if not exists
-          echo "📝 Creating nginx configuration..."
-          mkdir -p src/services/nginx
-
-          # Create upstream.conf for blue-green switching
-          cat > src/services/nginx/upstream.conf << 'NGINX_EOF'
-          # Blue-Green Upstream Configuration
-          upstream app_backend {
-              # Blue environment (default active)
-              server balanced_app_blue:3000 weight=1;
-              # Green environment (standby)
-              server balanced_app_green:3000 weight=0;
-          }
-          NGINX_EOF
-
-          # Create basic nginx.conf
-          cat > src/services/nginx/nginx.conf << 'NGINX_CONF_EOF'
-          events {
-              worker_connections 1024;
-          }
-
-          http {
-              include       /etc/nginx/mime.types;
-              default_type  application/octet-stream;
-
-              # Include upstream configuration
-              include /etc/nginx/conf.d/upstream.conf;
-
-              # Direct upstreams for health checks
-              upstream app_blue_direct {
-                  server balanced_app_blue:3000;
-              }
-
-              upstream app_green_direct {
-                  server balanced_app_green:3000;
-              }
-
-              # Health check endpoints
-              server {
-                  listen 8080;
-                  server_name _;
-
-                  location /health/blue {
-                      proxy_pass http://app_blue_direct/api/health;
-                  }
-
-                  location /health/green {
-                      proxy_pass http://app_green_direct/api/health;
-                  }
-              }
-
-              # Main application server
-              server {
-                  listen 80;
-                  server_name _;
-
-                  location / {
-                      proxy_pass http://app_backend;
-                      proxy_set_header Host \$host;
-                      proxy_set_header X-Real-IP \$remote_addr;
-                      proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto https;
-                  }
-
-                  location /api/health {
-                      proxy_pass http://app_backend/api/health;
-                      access_log off;
-                  }
-
-                  error_page 500 502 503 504 /50x.html;
-                  location = /50x.html {
-                      root /usr/share/nginx/html;
-                  }
-              }
-          }
-          NGINX_CONF_EOF
-
-          # Pull all Docker images
-          echo "📥 Pulling Docker images..."
-          docker pull "\$APP_IMAGE" || { echo "❌ Failed to pull app image"; exit 1; }
-          docker pull "\$NGINX_IMAGE" || { echo "❌ Failed to pull nginx image"; exit 1; }
-          docker pull "\$DB_IMAGE" || { echo "❌ Failed to pull database image"; exit 1; }
-          docker pull "\$BACKUP_IMAGE" || { echo "❌ Failed to pull backup image"; exit 1; }
-
-          # Create Docker network
-          docker network create balanced_network 2>/dev/null || echo "Network already exists"
-
-          # Start database
-          echo "🗄️  Starting database..."
-          docker stop balanced_db_prod 2>/dev/null || true
-          docker rm balanced_db_prod 2>/dev/null || true
-          docker volume create balanced_postgres_prod_data 2>/dev/null || true
-
-          docker run -d \\
-              --name balanced_db_prod \\
-              --network balanced_network \\
-              --restart unless-stopped \\
-              -e POSTGRES_USER=\${{ secrets.DB_USER }} \\
-              -e POSTGRES_PASSWORD=\${{ secrets.DB_PASSWORD }} \\
-              -e POSTGRES_DB=\${{ secrets.DB_NAME }} \\
-              -p 5432:5432 \\
-              -v balanced_postgres_prod_data:/var/lib/postgresql/data \\
-              -v \$(pwd)/db/backups:/backups \\
-              "\$DB_IMAGE"
-
-          # Wait for database
-          echo "⏳ Waiting for database..."
-          sleep 15
-
-          # Determine current active environment
-          CURRENT_ACTIVE="blue"
-          if [ -f src/services/nginx/upstream.conf ] && grep -q "server balanced_app_green:3000 weight=1" src/services/nginx/upstream.conf; then
-              CURRENT_ACTIVE="green"
-          fi
-
-          # Deploy to opposite environment
-          if [ "\$CURRENT_ACTIVE" = "blue" ]; then
-              TARGET_ENV="green"
-              TARGET_PORT="3002"
-          else
-              TARGET_ENV="blue"
-              TARGET_PORT="3001"
-          fi
-
-          echo "📍 Current active: \$CURRENT_ACTIVE"
-          echo "🎯 Deploying to: \$TARGET_ENV"
-
-          # Stop and remove target container
-          docker stop balanced_app_\$TARGET_ENV 2>/dev/null || true
-          docker rm balanced_app_\$TARGET_ENV 2>/dev/null || true
-
-          # Start new application container
-          echo "🚀 Starting \$TARGET_ENV environment..."
-          docker volume create balanced_app_uploads 2>/dev/null || true
-
-          docker run -d \\
-              --name balanced_app_\$TARGET_ENV \\
-              --network balanced_network \\
-              --restart unless-stopped \\
-              -e NODE_ENV=production \\
-              -e APP_COLOR=\$TARGET_ENV \\
-              -e DATABASE_URL="postgresql://\${{ secrets.DB_USER }}:\${{ secrets.DB_PASSWORD }}@balanced_db_prod:5432/\${{ secrets.DB_NAME }}" \\
-              -p \$TARGET_PORT:3000 \\
-              -v balanced_app_uploads:/app/uploads \\
-              "\$APP_IMAGE"
-
-          # Wait for app to be ready
-          echo "⏳ Waiting for \$TARGET_ENV environment..."
-          sleep 20
-
-          # Run migrations
-          echo "🗄️  Running migrations..."
-          docker exec balanced_app_\$TARGET_ENV npx prisma migrate deploy || echo "Migration failed, continuing..."
-
-          # Start/restart nginx
-          echo "🌐 Starting nginx..."
-          docker stop balanced_nginx_prod 2>/dev/null || true
-          docker rm balanced_nginx_prod 2>/dev/null || true
-
-          docker run -d \
-              --name balanced_nginx_prod \
-              --network balanced_network \
-              --restart unless-stopped \
-              -p 80:80 \
-              -p 8080:8080 \
-              -v \$(pwd)/src/services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro \
-              -v \$(pwd)/src/services/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro \
-              "\$NGINX_IMAGE"
-
-          # Switch traffic to new environment
-          echo "🔄 Switching traffic to \$TARGET_ENV..."
-          if [ "\$TARGET_ENV" = "blue" ]; then
-              cat > src/services/nginx/upstream.conf << 'SWITCH_EOF'
-          upstream app_backend {
-              server balanced_app_blue:3000 weight=1;
-              server balanced_app_green:3000 weight=0;
-          }
-          SWITCH_EOF
-          else
-              cat > src/services/nginx/upstream.conf << 'SWITCH_EOF'
-          upstream app_backend {
-              server balanced_app_blue:3000 weight=0;
-              server balanced_app_green:3000 weight=1;
-          }
-          SWITCH_EOF
-          fi
-
-          # Reload nginx
-          docker exec balanced_nginx_prod nginx -s reload
-
-          # Wait and then stop old environment
-          sleep 10
-          if [ "\$CURRENT_ACTIVE" != "\$TARGET_ENV" ]; then
-              echo "🛑 Stopping old \$CURRENT_ACTIVE environment..."
-              docker stop balanced_app_\$CURRENT_ACTIVE 2>/dev/null || true
-              docker rm balanced_app_\$CURRENT_ACTIVE 2>/dev/null || true
-          fi
-
-          echo "✅ Deployment completed successfully!"
-          echo "🌟 Active environment: \$TARGET_ENV"
-          EOL
-          )
-
-          # Execute deployment via SSH
-          ssh -o ConnectTimeout=60 \\
-              -o ServerAliveInterval=30 \\
-              -o ServerAliveCountMax=10 \\
-              -o TCPKeepAlive=yes \\
-              -o StrictHostKeyChecking=accept-new \\
-              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \\
-              "$PI_USERNAME@$PI_SSH_HOSTNAME" "\$DEPLOY_SCRIPT"
+          # Execute deployment script on Pi
+          ssh -o ConnectTimeout=60 \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=10 \
+              -o TCPKeepAlive=yes \
+              -o StrictHostKeyChecking=accept-new \
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME" \
+              "cd ~/balanced-app && \
+               export APP_IMAGE='$APP_IMAGE' && \
+               export NGINX_IMAGE='$NGINX_IMAGE' && \
+               export DB_IMAGE='$DB_IMAGE' && \
+               export BACKUP_IMAGE='$BACKUP_IMAGE' && \
+               ./scripts/deploy-blue-green.sh"
 
       - name: Health check
         id: health_check

@@ -12,6 +12,36 @@ echo '🔄 Starting Blue-Green Deployment...'
 # CONFIGURATION & SETUP
 ################################################################################
 
+# Docker image tags (can be set via environment variables from CI/CD)
+echo "🐳 Docker Image Configuration:"
+if [ -n "$APP_IMAGE" ]; then
+    export APP_IMAGE="$APP_IMAGE"
+    echo "  App: $APP_IMAGE"
+else
+    echo "  App: Using image from compose.prod.yml"
+fi
+
+if [ -n "$NGINX_IMAGE" ]; then
+    export NGINX_IMAGE="$NGINX_IMAGE"
+    echo "  Nginx: $NGINX_IMAGE"
+else
+    echo "  Nginx: Using image from compose.prod.yml"
+fi
+
+if [ -n "$DB_IMAGE" ]; then
+    export DB_IMAGE="$DB_IMAGE"
+    echo "  Database: $DB_IMAGE"
+else
+    echo "  Database: Using image from compose.prod.yml"
+fi
+
+if [ -n "$BACKUP_IMAGE" ]; then
+    export BACKUP_IMAGE="$BACKUP_IMAGE"
+    echo "  Backup: $BACKUP_IMAGE"
+else
+    echo "  Backup: Using image from compose.prod.yml"
+fi
+
 # Check Docker Compose version and set command
 if docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE="docker compose"
