@@ -14,8 +14,8 @@ RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json* eslint.config.mjs ./
 COPY prisma ./prisma/
 
-# Install production dependencies only with timeout handling
-RUN npm ci --omit=dev --timeout=300000
+# Install all dependencies (including dev) for build-time linting/type checks
+RUN npm ci --timeout=300000
 
 ################# Build #################
 FROM --platform=linux/arm64 node:22-alpine AS build
