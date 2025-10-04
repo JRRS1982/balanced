@@ -71,6 +71,9 @@ The following secrets must be configured in your GitHub repository:
 - `SSH_KNOWN_HOSTS`: SSH fingerprint of your Raspberry Pi
 - `PI_USERNAME`: Username for Raspberry Pi SSH login
 - `PI_HOST`: IP address or hostname of your Raspberry Pi
+- `PI_CLOUDFLARE_HOSTNAME`: Cloudflare hostname for your Raspberry Pi i.e. `ssh.balanced.money`
+- `CLOUDFLARE_ACCESS_CLIENT_ID`: Cloudflare Access Client ID for your Raspberry Pi
+- `CLOUDFLARE_ACCESS_CLIENT_SECRET`: Cloudflare Access Client Secret for your Raspberry Pi
 - `DATABASE_URL`: PostgreSQL connection string
 - `NEXTAUTH_SECRET`: Random string for JWT encryption
 - `NEXTAUTH_URL`: Public-facing URL of your application (e.g., <https://balanced.money>)

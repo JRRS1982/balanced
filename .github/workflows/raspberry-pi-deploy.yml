@@ -190,11 +190,15 @@ jobs:
       - name: Deploy to Raspberry Pi
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
+          # SSH hostname protected by Cloudflare Access (e.g., ssh.example.com)
+          PI_SSH_HOSTNAME: ${{ secrets.PI_SSH_HOSTNAME }}
+          # Cloudflare Access Service Token credentials
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
         timeout-minutes: 30
         run: |
           echo "🚀 Starting multi-service Docker deployment..."
-          echo "Connecting to: $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME"
+          echo "Connecting to: $PI_USERNAME@$PI_SSH_HOSTNAME"
 
           # Test SSH connection first
           echo "🔍 Testing SSH connection..."
@@ -202,8 +206,8 @@ jobs:
               -o ServerAliveInterval=10 \
               -o ServerAliveCountMax=3 \
               -o StrictHostKeyChecking=accept-new \
-              -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "echo '✅ SSH connection successful'" || {
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME" "echo '✅ SSH connection successful'" || {
             echo "❌ SSH connection failed"
             exit 1
           }
@@ -221,8 +225,8 @@ jobs:
               -o ServerAliveInterval=10 \
               -o ServerAliveCountMax=3 \
               -o StrictHostKeyChecking=accept-new \
-              -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME '
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME" '
               cd ~/balanced-app 2>/dev/null || { echo "FIRST_DEPLOY"; exit 0; }
 
               # Check which environment is active
@@ -534,21 +538,23 @@ jobs:
               -o ServerAliveCountMax=10 \\
               -o TCPKeepAlive=yes \\
               -o StrictHostKeyChecking=accept-new \\
-              -o ProxyCommand="cloudflared access ssh --hostname %h" \\
-              \$PI_USERNAME@\$PI_CLOUDFLARE_HOSTNAME "\$DEPLOY_SCRIPT"
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \\
+              "$PI_USERNAME@$PI_SSH_HOSTNAME" "\$DEPLOY_SCRIPT"
 
       - name: Health check
         id: health_check
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
+          PI_SSH_HOSTNAME: ${{ secrets.PI_SSH_HOSTNAME }}
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Starting container health check"
 
           # Verify the Docker Compose services are healthy
           ssh -o StrictHostKeyChecking=accept-new \
-              -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME" "
 
             cd ~/balanced-app
 
@@ -562,14 +568,16 @@ jobs:
         if: success() && steps.health_check.outcome == 'success'
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
+          PI_SSH_HOSTNAME: ${{ secrets.PI_SSH_HOSTNAME }}
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Finalizing successful deployment"
 
           # Finalize Docker Compose deployment
           ssh -o StrictHostKeyChecking=accept-new \
-              -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME" "
 
             cd ~/balanced-app
 
@@ -604,13 +612,15 @@ jobs:
         if: always() # Run clean-up even if previous steps fail
         env:
           PI_USERNAME: ${{ secrets.PI_USERNAME }}
-          PI_CLOUDFLARE_HOSTNAME: ${{ secrets.PI_CLOUDFLARE_HOSTNAME }}
+          PI_SSH_HOSTNAME: ${{ secrets.PI_SSH_HOSTNAME }}
+          CLOUDFLARE_ACCESS_CLIENT_ID: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_ACCESS_CLIENT_SECRET }}
         run: |
           echo "Performing post-deployment clean-up"
 
           ssh -o StrictHostKeyChecking=accept-new \
-              -o ProxyCommand="cloudflared access ssh --hostname %h" \
-              $PI_USERNAME@$PI_CLOUDFLARE_HOSTNAME "
+              -o ProxyCommand="cloudflared access ssh --hostname $PI_SSH_HOSTNAME --service-token-id $CLOUDFLARE_ACCESS_CLIENT_ID --service-token-secret $CLOUDFLARE_ACCESS_CLIENT_SECRET" \
+              "$PI_USERNAME@$PI_SSH_HOSTNAME" "
             echo 'Running comprehensive post-deployment cleanup...'
 
             cd ~/balanced-app
