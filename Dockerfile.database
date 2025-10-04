@@ -4,9 +4,6 @@ FROM postgres:16-alpine
 # Set environment variables for initialization
 ENV POSTGRES_INITDB_ARGS="--encoding=UTF8 --lc-collate=C --lc-ctype=C"
 
-# Copy initialization scripts if they exist
-COPY db/init/ /docker-entrypoint-initdb.d/
-
 # Create backup directory
 RUN mkdir -p /backups && chown postgres:postgres /backups
 
