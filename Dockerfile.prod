@@ -41,7 +41,10 @@ RUN npx prisma generate || echo "Prisma generate failed - will generate at runti
 
 # Next will handle the TS compilation and bundle code for production
 # Skip static generation during build to avoid Prisma client issues
-ENV NEXT_BUILD_SKIP_STATIC_GENERATION=true
+
+# Skip static generation for faster build times
+ENV NEXT_SHOULD_SKIP_BUILD_STATIC_GENERATION=true
+
 RUN npm run build
 
 # Remove development dependencies to minimize size

@@ -22,6 +22,9 @@ COPY . .
 
 # Generate Prisma client
 RUN npx prisma generate
+
+# Skip static generation for faster build times and as pages may need db access
+ENV NEXT_SHOULD_SKIP_BUILD_STATIC_GENERATION=true
 RUN npm run build
 
 ################# Deploy #################
