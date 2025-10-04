@@ -84,6 +84,7 @@ To add these secrets:
 ### Code Deployment Workflow
 
 ```mermaid
+%%{init: {'flowchart': {'wrap': true, 'htmlLabels': true}}}%%
 flowchart TB
     %% Deployment Trigger
     trigger_deploy[Push to Master Branch]
@@ -91,35 +92,44 @@ flowchart TB
     trigger_deploy --> lint
 
     subgraph "CI - Build & Test"
-        lint[Lint & Typecheck] --> test
-        test[Run Tests] --> build
-        build[Build Docker Image] --> push
-        push[Push to Docker Hub] --> deploy
+        lint[Lint, Typecheck, Format <br/> and Run Tests] --> meta
+        meta["Generate Image Metadata <br/> and Tags"] --> build
+
+        subgraph build[Build Docker Images]
+            direction LR
+            build_app[Build App Image] --> push_app[Push App]
+            build_nginx[Build Nginx Image] --> push_nginx[Push Nginx]
+            build_db[Build DB Image] --> push_db[Push DB]
+            build_backup[Build Backup Image] --> push_backup[Push Backup]
+        end
+
+        push_app --> deploy
+        push_nginx --> deploy
+        push_db --> deploy
+        push_backup --> deploy
     end
 
     subgraph "CD - To Raspberry Pi"
-        deploy[Transfer & Load Image] --> tag
-        tag[Tag Image with Timestamp] --> bluegreen
-        bluegreen[Prepare Blue-Green Deployment] --> container
-        container[Deploy New Container] --> health
-        health[Health Check] --> switch
+        deploy[Deploy Job Start] --> ssh[SSH via Cloudflare Tunnel]
+        ssh --> pull[Use Images From Build]
+        pull --> state["Detect Current Active <br/> (blue/green)"]
+        state --> target[Start Target Env Container]
+        target --> migrate[Run Prisma Migrations]
+        migrate --> nginx_reload["Update nginx upstream <br/> & reload"]
+        nginx_reload --> health["Health Check via nginx"]
 
-        switch{Healthy?}
-        switch -->|Yes| rename[Rename to Primary Container]
-        switch -->|No| rollback[Rollback Deployment]
+        health{Healthy?}
+        health -->|Yes| switch[Switch Traffic to New Env]
+        health -->|No| rollback[Rollback to Previous Env]
 
-        rename --> cleanup
+        switch --> cleanup[Cleanup Old Containers]
         rollback --> cleanup
-
-        cleanup[Cleanup Old Files & Images]
     end
-
-
 
     classDef cicd fill:#f9f,stroke:#333,stroke-width:2px
     classDef pi fill:#bbf,stroke:#333,stroke-width:2px
-    class lint,test,build,push cicd
-    class deploy,tag,bluegreen,container,health,switch,rename,rollback,cleanup pi
+    class lint,test,meta,push_app,push_nginx,push_db,push_backup cicd
+    class deploy,ssh,pull,state,target,migrate,nginx_reload,health,switch,rollback,cleanup pi
 ```
 
 ### Database Migrations Workflow
@@ -127,14 +137,14 @@ flowchart TB
 ```mermaid
 flowchart TB
     %% Migration Trigger
-    trigger_migrations(Manual Trigger in Github Actions)
+    trigger_migrations(Manual Trigger in <br/> Github Actions)
 
     trigger_migrations --> validate
 
     subgraph "Database Migrations"
         validate[Validate Migration Request] --> build_migrations
         build_migrations[Build Migrations Image] --> run_migrations
-        run_migrations[Execute Migrations in Container on Pi] --> clean_migrations
+        run_migrations[Execute Migrations on Pi] --> clean_migrations
         clean_migrations[Clean Up Resources]
     end
 
@@ -156,23 +166,23 @@ flowchart TB
     %% Production System Components
     users([Internet Users]) --> Cloudflare[Cloudflare Edge Network]
 
-    Cloudflare --> cloudflared[cloudflared Agent]
+    Cloudflare --> cloudflared[Cloudflared Agent]
 
     subgraph "Raspberry Pi Host"
         cloudflared --> nginx
-        app_blue[Docker Service: App - Port 3000]
-        app_green[Docker Service: App - Port 3001]
+        app_blue[Docker Service: App <br/> Port 3000]
+        app_green[Docker Service: App <br/> Port 3001]
 
-        nginx[Docker Service: Nginx Reverse Proxy] --> active{Active Port}
+        nginx[Docker Service: <br/> Nginx Reverse Proxy] --> active{Select Active <br/> Port}
 
-        active -->|Currently Active| app_blue
-        active -->|Standby| app_green
+        active -->|Blue| app_blue
+        active -->|Green| app_green
 
         app_blue -.-> db
         app_green -.-> db
 
-        db[(Docker Volume: PostgreSQL Database)]
-        backup[Daily Backup Service]
+        db[(Docker Volume: <br/> PostgreSQL Database)]
+        backup[(Docker Volume: <br/> PostgreSQL Backup)]
 
         db -.-> backup
     end

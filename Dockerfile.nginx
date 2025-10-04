@@ -6,7 +6,7 @@ COPY src/services/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY src/services/nginx/upstream.conf /etc/nginx/conf.d/upstream.conf
 
 # Copy static HTML files
-COPY static-html /usr/share/nginx/html
+COPY static-html/nginx /usr/share/nginx/html
 
 # Create log directory
 RUN mkdir -p /var/log/nginx
